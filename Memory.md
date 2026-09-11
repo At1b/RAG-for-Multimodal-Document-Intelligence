@@ -2,13 +2,15 @@
 
 ## Current Phase
 
-**Phase 0 — Project Foundation**
+**Phase 1 — Document Ingestion**
 
 Status: **COMPLETED**
 
 ---
 
 ## Completed Work
+
+### Phase 0 — Project Foundation
 
 - Git repository initialized
 - GitHub remote configured (origin → At1b/RAG-for-Multimodal-Document-Intelligence)
@@ -23,11 +25,24 @@ Status: **COMPLETED**
 - Formatting/linting configured (ruff)
 - All code passes lint and format checks
 - CI workflow created (.github/workflows/ci.yml)
-- .gitignore created
-- .env.example created
-- README.md created
-- LICENSE created (MIT)
+- .gitignore, .env.example, README.md, LICENSE created
 - PRD.md, Architecture.md, Rules.md, Phases.md present
+
+### Phase 1 — Document Ingestion
+
+- Normalized Document model (Pydantic): Document, PageContent
+- Document ID generation (UUID4, isolated in document_id module)
+- File validation: exists, not empty, size limit, extension check
+- Format detection: magic bytes + extension (PDF %PDF, DOCX PK zip)
+- PDF loader (PyMuPDF): page-by-page text extraction, page number preservation
+- DOCX loader (python-docx): paragraph + table extraction
+- IngestionService orchestrator: validate → detect → load → Document
+- API endpoint: POST /documents/upload
+- Error handling: custom exception hierarchy mapped to HTTP status codes
+- Configurable max upload size (default 50 MB)
+- Temp file cleanup on all code paths
+- 53 tests pass (50 new + 3 Phase 0)
+- Ruff lint and format checks pass
 
 ---
 
@@ -39,6 +54,9 @@ Status: **COMPLETED**
 | API Framework | FastAPI | 0.141.x |
 | ASGI Server | Uvicorn | 0.52.x |
 | Configuration | pydantic-settings | 2.15.x |
+| PDF Processing | PyMuPDF | 1.28.x |
+| DOCX Processing | python-docx | 1.2.x |
+| File Upload | python-multipart | 0.0.32 |
 | Frontend | React (Vite) | Vite 8.x |
 | Node.js | Node.js | 24.17.0 |
 | Testing | Pytest | 9.1.x |
@@ -57,6 +75,13 @@ Status: **COMPLETED**
 | pydantic-settings for config | Type-safe env config, integrates naturally with FastAPI/Pydantic |
 | MIT License | Common for open-source student projects; can be changed by team |
 | Pytest for testing | Documented in PRD as the test framework |
+| Pydantic for Document model | Already a dependency; provides validation, serialization, clean interfaces |
+| UUID4 for document IDs | Simple, unique, no filesystem path exposure; isolated for future change |
+| PyMuPDF for PDF processing | Lightweight, fast, no Java dependency; recommended in PRD |
+| python-docx for DOCX | Standard library for DOCX reading; recommended in PRD |
+| Magic bytes + extension for format detection | More reliable than extension alone; no external dependencies |
+| DOCX as single logical page | DOCX lacks native page boundaries; chunking handles splitting in Phase 2 |
+| 50 MB default upload limit | Reasonable for document processing; configurable via Settings |
 
 ---
 
@@ -68,16 +93,19 @@ Status: **COMPLETED**
 
 ## Known Limitations
 
-- Frontend is the default Vite/React template; no MM-RAG-specific UI yet (expected for Phase 0)
-- Backend exposes only /health endpoint (by design for Phase 0)
-- No RAG modules implemented (by design — belongs to later phases)
-- CI workflow not yet verified on GitHub (requires push to trigger)
+- Frontend is the default Vite/React template; no MM-RAG-specific UI yet
+- OCR is not implemented (deferred to Phase 10)
+- Scanned PDFs will extract no text (text extraction only, no image-based OCR)
+- DOCX does not preserve page boundaries (entire content as single page)
+- Tables in DOCX are extracted as pipe-separated plain text
+- No document persistence/storage — in-memory processing only
+- No database — documents are processed and returned, not stored
+- CI workflow needs pymupdf, python-docx, python-multipart added for Phase 1 tests
 
 ---
 
 ## Not Started
 
-- Document ingestion (Phase 1)
 - Text normalization and chunking (Phase 2)
 - Embeddings and vector store (Phase 3)
 - Semantic retrieval (Phase 4)
@@ -93,12 +121,12 @@ Status: **COMPLETED**
 
 ## Next Immediate Tasks
 
-1. Begin Phase 1 — Document Ingestion
-2. Implement file validation and format detection
-3. Implement PDF loader
-4. Implement DOCX loader
-5. Define normalized Document representation
+1. Begin Phase 2 — Normalization and Chunking
+2. Implement text cleaning/normalization
+3. Implement chunking strategy with configurable size and overlap
+4. Preserve metadata through chunking
+5. Generate unique chunk IDs
 
 ---
 
-Last Updated: 2026-08-23
+Last Updated: 2026-09-11

@@ -7,6 +7,7 @@ Run with:
 from fastapi import FastAPI
 
 from backend.config import get_settings
+from backend.documents import router as documents_router
 
 settings = get_settings()
 
@@ -15,6 +16,8 @@ app = FastAPI(
     description="Multi-Modal Multi-Document Retrieval-Augmented Generation",
     version="0.1.0",
 )
+
+app.include_router(documents_router)
 
 
 @app.get("/health")

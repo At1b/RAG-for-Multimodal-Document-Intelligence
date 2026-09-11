@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
+    max_upload_size_mb: int = 50
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
