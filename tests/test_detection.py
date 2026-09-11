@@ -47,7 +47,42 @@ def test_docx_extension_wrong_magic_raises(tmp_path: Path):
 
 
 def test_pdf_magic_takes_priority(tmp_path: Path):
-    """PDF magic bytes are detected regardless of extension."""
+    """PDF magic bytes with .pdf extension are detected as PDF."""
     weird = tmp_path / "report.pdf"
     weird.write_bytes(b"%PDF-2.0 newer pdf")
     assert detect_format(weird) == FileFormat.PDF
+
+
+def test_pdf_content_with_docx_extension_raises(tmp_path: Path):
+    """A .docx file containing PDF magic bytes is rejected as format mismatch."""
+    spoofed = tmp_path / "spoofed.docx"
+    spoofed.write_bytes(b"%PDF-1.4 some pdf data")
+    with pytest.raises(UnsupportedFormatError):
+        detect_format(spoofed)
+
+
+def test_docx_content_with_pdf_extension_raises(tmp_path: Path):
+    """A .pdf file containing ZIP/DOCX magic bytes is rejected as format mismatch."""
+    spoofed = tmp_path / "spoofed.pdf"
+    spoofed.write_bytes(b"PK\x03\x04 some zip data")
+    with pytest.raises(UnsupportedFormatError):
+        detect_format(spoofed)
+
+
+def test_case_insensitive_extension_detection(tmp_path: Path):
+    """Uppercase extensions like .PDF and .DOCX are properly detected."""
+    upper_pdf = tmp_path / "UPPER.PDF"
+    upper_pdf.write_bytes(b"%PDF-1.7 data")
+    assert detect_format(upper_pdf) == FileFormat.PDF
+
+    upper_docx = tmp_path / "UPPER.DOCX"
+    upper_docx.write_bytes(b"PK\x03\x04 data")
+    assert detect_format(upper_docx) == FileFormat.DOCX
+
+
+def test_missing_file_raises_filenotfound(tmp_path: Path):
+    """detect_format raises FileNotFoundError when the file does not exist."""
+    from rag.ingestion.exceptions import FileNotFoundError
+
+    with pytest.raises(FileNotFoundError):
+        detect_format(tmp_path / "nonexistent.pdf")

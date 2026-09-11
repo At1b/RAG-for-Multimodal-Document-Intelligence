@@ -134,3 +134,54 @@ def test_invalid_docx_raises(tmp_path: Path):
     bad.write_bytes(b"this is not a docx at all")
     with pytest.raises(InvalidDocumentError):
         load_docx(bad)
+
+
+def test_unicode_content_extracted(tmp_path: Path):
+    """Unicode characters in paragraphs and tables are extracted intact."""
+    unicode_para = "Résumé: Élève a réussi l'examen avec €100 de bourse."
+    unicode_table = [["Métrique", "Valeur"], ["Température", "25°C"]]
+    docx_file = _create_docx(
+        tmp_path / "unicode.docx",
+        paragraphs=[unicode_para],
+        table_data=unicode_table,
+    )
+    doc = load_docx(docx_file)
+    content = doc.pages[0].content
+    assert unicode_para in content
+    assert "Température | 25°C" in content
+
+
+def test_non_ascii_filename_handled(tmp_path: Path):
+    """DOCX with non-ASCII filename is loaded successfully."""
+    docx_file = _create_docx(tmp_path / "rapport_été_2024.docx", paragraphs=["Texte"])
+    doc = load_docx(docx_file)
+    assert doc.document_name == "rapport_été_2024.docx"
+    assert "Texte" in doc.pages[0].content
+
+
+def test_empty_table_rows_ignored(tmp_path: Path):
+    """Table rows where all cells are whitespace/empty are not extracted as ' | '."""
+    docx_file = _create_docx(
+        tmp_path / "empty_rows.docx",
+        paragraphs=["Header"],
+        table_data=[["", ""], ["Valid", "Data"], [" ", "  "]],
+    )
+    doc = load_docx(docx_file)
+    content = doc.pages[0].content
+    # Should not contain orphaned pipes
+    other_lines = [
+        line.strip() for line in content.split("\n") if line.strip() != "Valid | Data"
+    ]
+    assert " | " not in other_lines
+
+
+def test_zip_file_not_docx_raises_invalid_document(tmp_path: Path):
+    """A valid ZIP file that is not a DOCX document raises InvalidDocumentError."""
+    import zipfile
+
+    fake_docx = tmp_path / "not_a_docx.docx"
+    with zipfile.ZipFile(fake_docx, "w") as zf:
+        zf.writestr("test.txt", "just plain text in a zip")
+
+    with pytest.raises(InvalidDocumentError):
+        load_docx(fake_docx)

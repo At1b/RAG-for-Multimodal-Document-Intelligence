@@ -4,12 +4,14 @@ Each exception maps to a distinct failure mode in the ingestion pipeline.
 The API layer translates these into appropriate HTTP responses.
 """
 
+import builtins
+
 
 class IngestionError(Exception):
     """Base exception for all ingestion-related errors."""
 
 
-class FileNotFoundError(IngestionError):
+class FileNotFoundError(IngestionError, builtins.FileNotFoundError):
     """The requested file does not exist or is not accessible."""
 
 

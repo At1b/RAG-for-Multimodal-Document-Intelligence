@@ -35,19 +35,30 @@ async def upload_document(file: UploadFile):
     Accepts PDF and DOCX files.  Returns normalized metadata about
     the processed document.
     """
+    if not file.filename or not file.filename.strip():
+        raise HTTPException(status_code=400, detail="Filename is required.")
+
     settings = get_settings()
     max_bytes = settings.max_upload_size_mb * 1024 * 1024
 
     # Write upload to a temp file so the ingestion pipeline can work
     # with a regular filesystem path (required by PyMuPDF / python-docx).
-    suffix = Path(file.filename).suffix if file.filename else ""
+    suffix = Path(file.filename).suffix
     tmp_path: Path | None = None
 
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            contents = await file.read()
-            tmp.write(contents)
             tmp_path = Path(tmp.name)
+            chunk_size = 1024 * 1024  # 1 MB chunks
+            total_read = 0
+            while chunk := await file.read(chunk_size):
+                total_read += len(chunk)
+                if total_read > max_bytes:
+                    raise FileTooLargeError(
+                        f"File '{file.filename}' exceeds the "
+                        f"{settings.max_upload_size_mb} MB limit."
+                    )
+                tmp.write(chunk)
 
         service = IngestionService(max_size_bytes=max_bytes)
         document = service.ingest(tmp_path, original_filename=file.filename)
@@ -75,4 +86,11 @@ async def upload_document(file: UploadFile):
     finally:
         # Always clean up the temp file.
         if tmp_path and tmp_path.exists():
-            tmp_path.unlink()
+            try:
+                tmp_path.unlink()
+            except PermissionError:
+                import gc
+
+                gc.collect()
+                if tmp_path.exists():
+                    tmp_path.unlink(missing_ok=True)

@@ -7,6 +7,7 @@ single logical page.
 
 from __future__ import annotations
 
+import io
 import logging
 from pathlib import Path
 
@@ -33,7 +34,8 @@ def load_docx(file_path: Path, *, document_name: str | None = None) -> Document:
     name = document_name or file_path.name
 
     try:
-        doc = docx.Document(str(file_path))
+        with open(file_path, "rb") as fh:
+            doc = docx.Document(io.BytesIO(fh.read()))
     except Exception as exc:
         raise InvalidDocumentError(f"Failed to open DOCX '{name}': {exc}") from exc
 
@@ -55,8 +57,8 @@ def load_docx(file_path: Path, *, document_name: str | None = None) -> Document:
         for table in doc.tables:
             for row in table.rows:
                 cells = [cell.text.strip() for cell in row.cells]
-                row_text = " | ".join(cells)
-                if row_text.strip():
+                if any(cells):
+                    row_text = " | ".join(cells)
                     parts.append(row_text)
     except Exception as exc:
         raise InvalidDocumentError(

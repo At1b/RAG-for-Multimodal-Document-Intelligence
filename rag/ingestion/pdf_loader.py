@@ -31,28 +31,41 @@ def load_pdf(file_path: Path, *, document_name: str | None = None) -> Document:
     name = document_name or file_path.name
 
     try:
-        doc = pymupdf.open(file_path)
+        with open(file_path, "rb") as fh:
+            doc = pymupdf.open(stream=fh.read(), filetype="pdf")
     except Exception as exc:
         raise InvalidDocumentError(f"Failed to open PDF '{name}': {exc}") from exc
 
+    if doc.is_encrypted and doc.needs_pass:
+        doc.close()
+        raise InvalidDocumentError(f"PDF '{name}' is password-protected or encrypted.")
+
     pages: list[PageContent] = []
+    current_page = 0
     try:
         for page_num in range(len(doc)):
+            current_page = page_num + 1
             page = doc[page_num]
             text = page.get_text("text")
             pages.append(
                 PageContent(
-                    page_number=page_num + 1,  # 1-indexed
+                    page_number=current_page,  # 1-indexed
                     content=text,
                     metadata={"char_count": len(text)},
                 )
             )
     except Exception as exc:
-        raise InvalidDocumentError(
-            f"Error extracting text from PDF '{name}' on page {page_num + 1}: {exc}"
-        ) from exc
+        msg = (
+            f"Error extracting text from PDF '{name}' on page {current_page}: {exc}"
+            if current_page > 0
+            else f"Error extracting text from PDF '{name}': {exc}"
+        )
+        raise InvalidDocumentError(msg) from exc
     finally:
         doc.close()
+
+    if not pages:
+        raise InvalidDocumentError(f"PDF '{name}' contains no pages or is corrupted.")
 
     file_size = file_path.stat().st_size
 

@@ -116,3 +116,48 @@ def test_invalid_pdf_raises(tmp_path: Path):
     bad.write_bytes(b"this is not a pdf at all")
     with pytest.raises(InvalidDocumentError):
         load_pdf(bad)
+
+
+def test_unicode_content_extracted(tmp_path: Path):
+    """Unicode characters (accents, umlauts, cedillas) are extracted intact."""
+    unicode_text = "Élève, Über, résumé, naïve, señor, café"
+    pdf = _create_pdf(tmp_path / "unicode.pdf", [unicode_text])
+    doc = load_pdf(pdf)
+    assert unicode_text in doc.pages[0].content
+
+
+def test_non_ascii_filename_handled(tmp_path: Path):
+    """PDF with non-ASCII filename is loaded successfully."""
+    pdf = _create_pdf(tmp_path / "über_rapport_2024.pdf", ["Content"])
+    doc = load_pdf(pdf)
+    assert doc.document_name == "über_rapport_2024.pdf"
+    assert len(doc.pages) == 1
+
+
+def test_encrypted_pdf_raises_invalid_document(tmp_path: Path):
+    """Password-protected / encrypted PDF raises InvalidDocumentError."""
+    pdf_path = tmp_path / "encrypted.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Confidential")
+    perm = int(pymupdf.PDF_PERM_ACCESSIBILITY)
+    doc.save(
+        str(pdf_path),
+        encryption=pymupdf.PDF_ENCRYPT_AES_256,
+        user_pw="secret",
+        owner_pw="admin",
+        permissions=perm,
+    )
+    doc.close()
+
+    with pytest.raises(InvalidDocumentError, match="password-protected or encrypted"):
+        load_pdf(pdf_path)
+
+
+def test_corrupted_pdf_with_no_pages_raises(tmp_path: Path):
+    """A PDF with invalid structure and zero pages raises InvalidDocumentError."""
+    pdf_path = tmp_path / "zero_pages.pdf"
+    pdf_path.write_bytes(b"%PDF-1.5\n1 0 obj\n<<>>\nendobj\n")
+
+    with pytest.raises(InvalidDocumentError):
+        load_pdf(pdf_path)

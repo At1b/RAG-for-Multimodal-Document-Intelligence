@@ -9,7 +9,7 @@ from __future__ import annotations
 import enum
 from pathlib import Path
 
-from rag.ingestion.exceptions import UnsupportedFormatError
+from rag.ingestion.exceptions import FileNotFoundError, UnsupportedFormatError
 
 # Magic-byte signatures used to verify file content.
 _PDF_MAGIC = b"%PDF"
@@ -36,18 +36,18 @@ def detect_format(file_path: Path) -> FileFormat:
     Strategy:
         1. Read the first few bytes to check magic signatures.
         2. Cross-reference with the file extension.
-        3. Magic bytes take priority — a ``.pdf`` file without the
-           ``%PDF`` header is rejected.
+        3. Magic bytes must align with the expected extension.
 
     Raises:
+        FileNotFoundError: If the file does not exist or cannot be read.
         UnsupportedFormatError: If the format cannot be identified or
             the magic bytes contradict the extension.
     """
     magic = _read_magic_bytes(file_path)
     ext = file_path.suffix.lower()
 
-    # Try magic bytes first.
-    if magic.startswith(_PDF_MAGIC):
+    # Both magic bytes and extension must align.
+    if magic.startswith(_PDF_MAGIC) and ext == ".pdf":
         return FileFormat.PDF
     if magic.startswith(_ZIP_MAGIC) and ext == ".docx":
         # ZIP could be many things — only accept as DOCX when the
@@ -69,5 +69,10 @@ def detect_format(file_path: Path) -> FileFormat:
 
 def _read_magic_bytes(file_path: Path, size: int = 8) -> bytes:
     """Read the first *size* bytes of a file for signature detection."""
-    with open(file_path, "rb") as fh:
-        return fh.read(size)
+    try:
+        with open(file_path, "rb") as fh:
+            return fh.read(size)
+    except OSError as exc:
+        raise FileNotFoundError(
+            f"File not found or unreadable: '{file_path.name}'."
+        ) from exc

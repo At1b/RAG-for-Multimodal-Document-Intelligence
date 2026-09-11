@@ -40,9 +40,16 @@ Status: **COMPLETED**
 - API endpoint: POST /documents/upload
 - Error handling: custom exception hierarchy mapped to HTTP status codes
 - Configurable max upload size (default 50 MB)
-- Temp file cleanup on all code paths
-- 53 tests pass (50 new + 3 Phase 0)
-- Ruff lint and format checks pass
+- Hardening & Edge-Case Protection:
+  - Stream/BytesIO loaders preventing OS file descriptor leaks and Windows file locking (`PermissionError`)
+  - Early encrypted/password-protected PDF rejection (`InvalidDocumentError`)
+  - Zero-page / truncated PDF validation
+  - Empty table row filtering in DOCX loader (prevents orphaned `" | "` lines)
+  - Symmetric format detection preventing cross-format spoofing
+  - Memory-safe chunked upload streaming with early size limit abort
+  - Early empty/whitespace filename validation (HTTP 400)
+- 80 tests pass (27 new edge-case tests + 50 Phase 1 + 3 Phase 0)
+- Ruff lint and format checks pass (100% clean)
 
 ---
 
@@ -82,6 +89,8 @@ Status: **COMPLETED**
 | Magic bytes + extension for format detection | More reliable than extension alone; no external dependencies |
 | DOCX as single logical page | DOCX lacks native page boundaries; chunking handles splitting in Phase 2 |
 | 50 MB default upload limit | Reasonable for document processing; configurable via Settings |
+| Stream / BytesIO loader reading | Prevents C library / zipfile OS handle locks on Windows during temp cleanup |
+| Chunked upload streaming | Avoids reading massive uploads into memory before size validation |
 
 ---
 
@@ -100,7 +109,6 @@ Status: **COMPLETED**
 - Tables in DOCX are extracted as pipe-separated plain text
 - No document persistence/storage — in-memory processing only
 - No database — documents are processed and returned, not stored
-- CI workflow needs pymupdf, python-docx, python-multipart added for Phase 1 tests
 
 ---
 
