@@ -30,11 +30,11 @@ class Chunk(BaseModel):
             document/page plus chunk-specific information.
     """
 
-    chunk_id: str
-    document_id: str
-    document_name: str
-    source_type: str
-    content: str
-    page_number: int | None = None
+    chunk_id: str = Field(..., min_length=1)
+    document_id: str = Field(..., min_length=1)
+    document_name: str = Field(..., min_length=1)
+    source_type: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+    page_number: int | None = Field(default=None, ge=1)
     chunk_index: int = Field(..., ge=0)
     metadata: dict[str, Any] = Field(default_factory=dict)

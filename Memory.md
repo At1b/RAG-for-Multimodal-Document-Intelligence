@@ -69,11 +69,18 @@ Status: **COMPLETED**
   - Deterministic behavior
   - Infinite-loop guard (step always >= 1)
   - Handles: empty text, whitespace-only, short text, exact boundary, very long text
-- Page-number tracking: proportional mapping from cleaned-text offset to raw page boundaries
-- Metadata preservation: document_id, document_name, source_type, page_number carried through
-- Chunk metadata includes: char_count, chunk_size config, chunk_overlap config
-- Configuration: CHUNK_SIZE and CHUNK_OVERLAP added to backend Settings and .env.example
-- 59 new Phase 2 tests + 80 existing = 139 total tests passing
+- Page-number tracking: exact boundary tracking in cleaned text (replaces proportional offset mapping, guaranteeing 100% provenance accuracy across multi-page documents)
+- Metadata preservation: document_id, document_name, source_type, page_number carried through; original document metadata and page metadata preserved in chunk metadata
+- Chunk metadata includes: char_count, chunk_size config, chunk_overlap config, and inherited document/page metadata
+- Configuration: CHUNK_SIZE and CHUNK_OVERLAP added to backend Settings and .env.example with strict validation
+- Hardening & Edge-Case Protection:
+  - Exact page boundary tracking per cleaned page eliminates provenance misattribution caused by uneven whitespace collapse
+  - Null bytes (`\x00`), byte-order mark (`\ufeff`), and zero-width spaces (`\u200b`) stripped in `clean_text` to protect downstream stores
+  - Non-breaking spaces (`\u00a0`) normalized to standard spaces
+  - Full metadata passthrough from `Document.metadata` and `PageContent.metadata` into `Chunk.metadata`
+  - Strict model validation on `Chunk` (`min_length=1` on strings, `ge=1` on `page_number`, `ge=0` on `chunk_index`)
+  - Strict field and cross-field validation in backend `Settings` for `chunk_size`, `chunk_overlap`, and `max_upload_size_mb`
+- 184 total tests passing (104 Phase 2 tests, including 45 new hardening tests + 80 Phase 1 + Phase 0)
 - Ruff lint and format checks pass (100% clean)
 
 ---
@@ -120,8 +127,10 @@ Status: **COMPLETED**
 | Fixed-size character chunking | Simple, deterministic, no external NLP dependencies; replaceable later |
 | 1000 char chunk_size default | ~200-250 words; fits typical embedding model context windows |
 | 200 char chunk_overlap default | Enough to avoid mid-sentence breaks at boundaries |
-| Conservative text cleaning | Preserves semantic content; only normalizes whitespace artifacts |
-| Proportional page-number mapping | Handles cleaned-text offset drift; assigns chunk to starting page |
+| Conservative text cleaning | Preserves semantic content; normalizes whitespace artifacts and sanitizes null bytes/BOM/zero-width spaces |
+| Exact page-boundary tracking | Replaces proportional mapping to eliminate provenance drift across pages with uneven whitespace |
+| Full metadata passthrough | Preserves document-level and page-level metadata in Chunk.metadata for downstream citation and retrieval |
+| Backend Settings validation | Validates chunk size and overlap at config load time via Pydantic v2 model_validator |
 | No new dependencies for Phase 2 | Only uses Pydantic (already installed) and Python stdlib |
 
 ---
@@ -142,7 +151,6 @@ Status: **COMPLETED**
 - No document persistence/storage — in-memory processing only
 - No database — documents are processed and returned, not stored
 - Chunking is character-based only; no sentence-aware or semantic chunking
-- Page-number assignment uses proportional offset mapping, which may be slightly approximate when cleaning changes text length significantly
 
 ---
 

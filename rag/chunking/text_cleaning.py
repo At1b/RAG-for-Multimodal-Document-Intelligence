@@ -43,22 +43,28 @@ def clean_text(text: str) -> str:
     if not text:
         return ""
 
-    # 1. Normalize line endings.
-    result = _RE_CRLF.sub("\n", text)
+    # 1. Sanitize null bytes, byte-order mark, and zero-width spaces.
+    result = text.replace("\x00", "").replace("\ufeff", "").replace("\u200b", "")
 
-    # 2. Convert tabs to spaces (before collapsing).
+    # 2. Normalize non-breaking spaces to standard space.
+    result = result.replace("\u00a0", " ")
+
+    # 3. Normalize line endings.
+    result = _RE_CRLF.sub("\n", result)
+
+    # 4. Convert tabs to spaces (before collapsing).
     result = result.replace("\t", " ")
 
-    # 3. Strip each line individually (removes leading/trailing
+    # 5. Strip each line individually (removes leading/trailing
     #    spaces per line while preserving intentional blank lines).
     result = "\n".join(line.strip() for line in result.split("\n"))
 
-    # 4. Collapse runs of horizontal whitespace within lines.
+    # 6. Collapse runs of horizontal whitespace within lines.
     result = _RE_HORIZONTAL_SPACE.sub(" ", result)
 
-    # 5. Collapse 3+ consecutive newlines → double newline
+    # 7. Collapse 3+ consecutive newlines → double newline
     #    (preserves single paragraph breaks).
     result = _RE_MULTI_NEWLINES.sub("\n\n", result)
 
-    # 6. Strip leading/trailing whitespace from full text.
+    # 8. Strip leading/trailing whitespace from full text.
     return result.strip()

@@ -15,9 +15,9 @@ Defaults:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Self
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from rag.chunking.chunk_id import generate_chunk_id
 from rag.chunking.models import Chunk
@@ -53,13 +53,15 @@ class ChunkingConfig(BaseModel):
             raise ValueError(f"chunk_overlap must be >= 0, got {v}")
         return v
 
-    def model_post_init(self, __context: Any) -> None:
+    @model_validator(mode="after")
+    def _validate_overlap(self) -> Self:
         """Validate cross-field constraint: overlap < chunk_size."""
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError(
                 f"chunk_overlap ({self.chunk_overlap}) must be < "
                 f"chunk_size ({self.chunk_size})"
             )
+        return self
 
 
 def chunk_document(
@@ -79,14 +81,10 @@ def chunk_document(
     if config is None:
         config = ChunkingConfig()
 
-    # Concatenate all page text, tracking page boundaries for
-    # page-number assignment.
-    full_text, page_offsets = _build_full_text(document)
+    # Clean each page and record exact page boundaries in cleaned text.
+    full_cleaned, page_boundaries = _build_cleaned_document(document)
 
-    # Clean the concatenated text.
-    cleaned = clean_text(full_text)
-
-    if not cleaned:
+    if not full_cleaned:
         logger.info(
             "Document '%s' (id=%s) has no text after cleaning — producing zero chunks.",
             document.document_name,
@@ -94,18 +92,34 @@ def chunk_document(
         )
         return []
 
-    # Split into raw text segments.
-    segments = _split_text(cleaned, config.chunk_size, config.chunk_overlap)
+    # Split into text segments with offsets.
+    segments = _split_text(full_cleaned, config.chunk_size, config.chunk_overlap)
 
     # Build Chunk objects with metadata.
     chunks: list[Chunk] = []
-    for idx, segment in enumerate(segments):
-        # Determine the page number for this segment.
-        # We use the page where the segment's starting offset falls in
-        # the *cleaned* text.  Since cleaning may shift offsets slightly,
-        # we track against the cleaned full text.
-        start_offset = _find_segment_start(cleaned, segment, idx, config)
-        page_num = _page_for_offset(start_offset, full_text, cleaned, page_offsets)
+    for idx, (start_offset, segment) in enumerate(segments):
+        page_num = _page_for_offset(start_offset, page_boundaries)
+
+        # Carry forward document-level metadata.
+        chunk_metadata = dict(document.metadata)
+
+        # Carry forward page-level metadata if available.
+        if page_num is not None:
+            for page in document.pages:
+                if page.page_number == page_num:
+                    for k, v in page.metadata.items():
+                        if k not in chunk_metadata and k != "char_count":
+                            chunk_metadata[k] = v
+                    break
+
+        # Record chunk-specific information.
+        chunk_metadata.update(
+            {
+                "char_count": len(segment),
+                "chunk_size": config.chunk_size,
+                "chunk_overlap": config.chunk_overlap,
+            }
+        )
 
         chunks.append(
             Chunk(
@@ -116,11 +130,7 @@ def chunk_document(
                 content=segment,
                 page_number=page_num,
                 chunk_index=idx,
-                metadata={
-                    "char_count": len(segment),
-                    "chunk_size": config.chunk_size,
-                    "chunk_overlap": config.chunk_overlap,
-                },
+                metadata=chunk_metadata,
             )
         )
 
@@ -140,65 +150,73 @@ def chunk_document(
 # ---------------------------------------------------------------------------
 
 
-def _build_full_text(
+def _build_cleaned_document(
     document: Document,
 ) -> tuple[str, list[tuple[int, int, int]]]:
-    """Concatenate page texts and record page boundary offsets.
+    """Clean each page and record exact page boundaries in cleaned text.
 
     Returns:
-        A tuple of (full_text, page_offsets) where page_offsets is a list
-        of (start_char, end_char, page_number) tuples in the raw
-        (pre-cleaning) concatenated text.
+        A tuple of (full_cleaned_text, page_boundaries) where page_boundaries
+        is a list of (start_char, end_char, page_number) tuples in the
+        concatenated cleaned text.
     """
     parts: list[str] = []
-    offsets: list[tuple[int, int, int]] = []
+    boundaries: list[tuple[int, int, int]] = []
     current = 0
 
     for page in document.pages:
-        text = page.content
+        cleaned_page = clean_text(page.content)
+        if not cleaned_page:
+            continue
+
+        if parts:
+            # Paragraph separator between distinct pages.
+            parts.append("\n\n")
+            current += 2
+
         start = current
-        parts.append(text)
-        current += len(text)
-        offsets.append((start, current, page.page_number))
+        parts.append(cleaned_page)
+        current += len(cleaned_page)
+        boundaries.append((start, current, page.page_number))
 
-        # Add a newline separator between pages.
-        parts.append("\n")
-        current += 1
-
-    full = "".join(parts)
-    return full, offsets
+    full_cleaned = "".join(parts)
+    return full_cleaned, boundaries
 
 
-def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
+def _split_text(
+    text: str,
+    chunk_size: int,
+    overlap: int,
+) -> list[tuple[int, str]]:
     """Split *text* into fixed-size segments with overlap.
 
     Guarantees:
     - Every character in *text* appears in at least one segment.
     - Segments preserve text order.
     - No infinite loop (step is always >= 1).
+
+    Returns:
+        List of (start_offset, segment) tuples.
     """
     if not text:
         return []
 
     text_len = len(text)
     if text_len <= chunk_size:
-        return [text]
+        return [(0, text)]
 
     step = chunk_size - overlap
-    # Safety: step must be >= 1 (guaranteed by config validation:
-    # overlap < chunk_size), but guard defensively.
     if step < 1:
         step = 1
 
-    segments: list[str] = []
+    segments: list[tuple[int, str]] = []
     start = 0
 
     while start < text_len:
         end = start + chunk_size
         segment = text[start:end]
-        segments.append(segment)
+        segments.append((start, segment))
 
-        # If we've reached the end, stop.
         if end >= text_len:
             break
 
@@ -207,50 +225,21 @@ def _split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     return segments
 
 
-def _find_segment_start(
-    cleaned: str,
-    segment: str,
-    index: int,
-    config: ChunkingConfig,
-) -> int:
-    """Calculate the character offset of *segment* within *cleaned* text."""
-    step = config.chunk_size - config.chunk_overlap
-    if step < 1:
-        step = 1
-    return index * step
-
-
 def _page_for_offset(
     offset: int,
-    raw_text: str,
-    cleaned_text: str,
-    page_offsets: list[tuple[int, int, int]],
+    page_boundaries: list[tuple[int, int, int]],
 ) -> int | None:
     """Determine the page number for a character offset in cleaned text.
 
-    Uses a proportional mapping from cleaned-text offset to raw-text
-    offset, then looks up the page boundary table.
+    Uses exact page boundary lookup in the cleaned text.
 
     Returns ``None`` if page information is unavailable.
     """
-    if not page_offsets:
+    if not page_boundaries:
         return None
 
-    # Map cleaned offset to approximate raw offset proportionally.
-    cleaned_len = len(cleaned_text)
-    raw_len = len(raw_text)
-
-    if cleaned_len == 0:
-        return page_offsets[0][2] if page_offsets else None
-
-    # Proportional mapping.
-    raw_offset = int(offset * raw_len / cleaned_len) if cleaned_len > 0 else 0
-    raw_offset = min(raw_offset, raw_len - 1) if raw_len > 0 else 0
-
-    # Find which page this raw offset falls in.
-    for start, end, page_num in page_offsets:
-        if start <= raw_offset < end:
+    for _start, end, page_num in page_boundaries:
+        if offset < end:
             return page_num
 
-    # Fallback: return the last page number.
-    return page_offsets[-1][2]
+    return page_boundaries[-1][2]
