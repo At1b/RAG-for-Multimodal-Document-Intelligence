@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Phase 2 — Normalization and Chunking**
+**Phase 3 — Embeddings and Vector Store**
 
 Status: **COMPLETED**
 
@@ -83,6 +83,69 @@ Status: **COMPLETED**
 - 184 total tests passing (104 Phase 2 tests, including 45 new hardening tests + 80 Phase 1 + Phase 0)
 - Ruff lint and format checks pass (100% clean)
 
+### Phase 3 — Embeddings and Vector Store
+
+- **Embedding model**: `all-MiniLM-L6-v2` via `sentence-transformers`
+  - 384 dimensions, ~80 MB, Apache 2.0
+  - CPU-practical, fast inference, no GPU required
+  - Selected for quality/size tradeoff; ideal for student project scope
+- **Embedding interface**: Abstract `EmbeddingService` (ABC) in `rag/embeddings/base.py`
+  - `embed_documents(texts)` — batch embedding
+  - `embed_query(text)` — single query embedding
+  - `dimension` property — embedding dimensionality
+  - `model_name` property — model identifier
+  - Replaceable: swap concrete class + config value, no downstream changes
+- **Concrete implementation**: `SentenceTransformerEmbeddingService` in `rag/embeddings/sentence_transformer.py`
+  - Lazy model loading (no startup cost)
+  - Configurable model name and batch size
+  - Input validation: empty list, non-string items, empty/whitespace strings
+  - Error handling: model initialization failures → `RuntimeError`
+  - Normalized embeddings (L2-normalized via sentence-transformers)
+- **Vector store**: ChromaDB in `rag/vectorstore/chroma_store.py`
+  - Native metadata storage per embedding
+  - Built-in local persistence (directory-based)
+  - Cosine similarity search
+  - Deterministic collection naming
+  - ID-based upsert (duplicate chunk IDs overwritten)
+- **Vector store interface**: Abstract `VectorStore` (ABC) in `rag/vectorstore/base.py`
+  - `add_chunks(chunks, embeddings)` — store with metadata
+  - `query(query_vector, top_k)` → `list[VectorSearchResult]`
+  - `delete_document(document_id)` — document-level deletion
+  - `count()` — total stored vectors
+  - `reset()` — clear all vectors
+  - Replaceable: swap concrete class, no downstream changes
+- **VectorSearchResult** model: chunk_id, document_id, document_name, content, score, metadata
+- **Re-indexing strategy**: Document-level replacement
+  - Delete all existing chunks for `document_id` before inserting new version
+  - No stale chunks remain after re-processing
+  - Deterministic behavior
+- **IndexingService**: Chunk → Embed → Store orchestrator in `rag/embeddings/indexing.py`
+  - Consumes Phase 2 `Chunk` model directly
+  - Configurable re-indexing (`reindex=True` by default)
+  - Batch embedding via EmbeddingService
+- **Metadata preservation**: Every stored vector retains chunk_id, document_id, document_name, source_type, page_number, chunk_index, and custom chunk metadata
+- **Configuration added**:
+  - `EMBEDDING_MODEL=all-MiniLM-L6-v2`
+  - `EMBEDDING_BATCH_SIZE=64`
+  - `VECTOR_STORE_PATH=data/vectorstore`
+  - `VECTOR_STORE_COLLECTION=mmrag_chunks`
+  - `VECTOR_SEARCH_TOP_K=10`
+  - Field validators for `embedding_batch_size` (>= 1) and `vector_search_top_k` (>= 1)
+- **Security**: `data/` directory added to `.gitignore` (prevents committing vector store data, model caches)
+- **Dependencies added**: `sentence-transformers>=3.0.0`, `chromadb>=0.5.0`
+- **Hardening & Edge-Case Protection**:
+  - Lazy model loading avoids import-time cost and failure
+  - Empty/non-string input validation on all embedding methods
+  - ChromaDB `PersistentClient` file lock handling in tests (`ignore_cleanup_errors=True` for Windows compatibility)
+  - Score conversion: ChromaDB cosine distance → similarity (1.0 - distance)
+  - `top_k` clamped to available count to avoid ChromaDB errors on empty/small stores
+  - Flat metadata serialization for ChromaDB compatibility (only str/int/float/bool values)
+- **257 total tests passing** (73 new Phase 3 tests + 184 Phase 1+2):
+  - 28 embedding tests (interface, init, dimension, batch, query, unicode, invalid model)
+  - 37 vector store tests (interface, init, add, query, metadata, delete, reindex, count, reset, persistence, collections)
+  - 8 indexing integration tests (pipeline, reindex, metadata round-trip, semantic similarity)
+- Ruff lint and format checks pass (100% clean)
+
 ---
 
 ## Technology Stack (Implemented)
@@ -96,6 +159,9 @@ Status: **COMPLETED**
 | PDF Processing | PyMuPDF | 1.28.x |
 | DOCX Processing | python-docx | 1.2.x |
 | File Upload | python-multipart | 0.0.32 |
+| Embeddings | sentence-transformers | 6.0.x |
+| Embedding Model | all-MiniLM-L6-v2 | — |
+| Vector Store | ChromaDB | 1.5.x |
 | Frontend | React (Vite) | Vite 8.x |
 | Node.js | Node.js | 24.17.0 |
 | Testing | Pytest | 9.1.x |
@@ -132,6 +198,15 @@ Status: **COMPLETED**
 | Full metadata passthrough | Preserves document-level and page-level metadata in Chunk.metadata for downstream citation and retrieval |
 | Backend Settings validation | Validates chunk size and overlap at config load time via Pydantic v2 model_validator |
 | No new dependencies for Phase 2 | Only uses Pydantic (already installed) and Python stdlib |
+| all-MiniLM-L6-v2 for embeddings | 384-dim, ~80 MB, CPU-friendly, Apache 2.0; best quality/size tradeoff for student project |
+| sentence-transformers library | Clean API for batch/query embedding, normalization, well-maintained |
+| ChromaDB for vector store | Native metadata, built-in persistence, ID-based ops, no infrastructure needed |
+| Abstract EmbeddingService ABC | Allows model swap without downstream changes; future-proof for multilingual or larger models |
+| Abstract VectorStore ABC | Allows backend swap (e.g. FAISS, Qdrant) without pipeline changes |
+| Document-level re-indexing | Delete all chunks for document_id before insert; prevents stale data; deterministic |
+| Lazy model loading | Avoids import-time cost; model loaded on first embed call |
+| Cosine similarity in ChromaDB | Standard metric for normalized sentence embeddings |
+| data/ in .gitignore | Prevents committing vector store data and model caches |
 
 ---
 
@@ -151,12 +226,14 @@ Status: **COMPLETED**
 - No document persistence/storage — in-memory processing only
 - No database — documents are processed and returned, not stored
 - Chunking is character-based only; no sentence-aware or semantic chunking
+- Embedding model is English-optimized; multilingual support requires model swap
+- Embedding model max sequence length is 256 tokens; chunks exceeding this are truncated
+- ChromaDB not designed for massive scale (millions of vectors); acceptable for project scope
 
 ---
 
 ## Not Started
 
-- Embeddings and vector store (Phase 3)
 - Semantic retrieval (Phase 4)
 - LLM generation (Phase 5)
 - End-to-end baseline RAG (Phase 6)
@@ -170,12 +247,12 @@ Status: **COMPLETED**
 
 ## Next Immediate Tasks
 
-1. Begin Phase 3 — Embeddings and Vector Store
-2. Define embedding interface
-3. Select initial embedding model
-4. Implement embedding generation for chunks
-5. Select and integrate vector store
+1. Begin Phase 4 — Basic Semantic Retrieval
+2. Define retriever interface
+3. Embed user query
+4. Search vector store
+5. Return top-K results with metadata
 
 ---
 
-Last Updated: 2026-09-12
+Last Updated: 2026-09-13
