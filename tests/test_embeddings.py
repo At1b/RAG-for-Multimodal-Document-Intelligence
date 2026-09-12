@@ -87,6 +87,18 @@ class TestInitialization:
         with pytest.raises(ValueError, match="batch_size"):
             SentenceTransformerEmbeddingService(batch_size=-1)
 
+    def test_non_string_model_name_raises(self):
+        with pytest.raises(ValueError, match="model_name"):
+            SentenceTransformerEmbeddingService(model_name=123)  # type: ignore[arg-type]
+
+    def test_bool_batch_size_raises(self):
+        with pytest.raises(ValueError, match="batch_size"):
+            SentenceTransformerEmbeddingService(batch_size=True)  # type: ignore[arg-type]
+
+    def test_float_batch_size_raises(self):
+        with pytest.raises(ValueError, match="batch_size"):
+            SentenceTransformerEmbeddingService(batch_size=32.5)  # type: ignore[arg-type]
+
     def test_lazy_loading(self):
         """Model should NOT be loaded until first use."""
         svc = SentenceTransformerEmbeddingService()
@@ -164,12 +176,42 @@ class TestEmbedDocuments:
         with pytest.raises(ValueError, match="string"):
             embedding_service.embed_documents(["valid", 123])  # type: ignore[list-item]
 
+    def test_empty_string_in_list_raises(self, embedding_service):
+        with pytest.raises(ValueError, match="non-empty"):
+            embedding_service.embed_documents(["valid", ""])
+
+    def test_whitespace_in_list_raises(self, embedding_service):
+        with pytest.raises(ValueError, match="non-empty"):
+            embedding_service.embed_documents(["   "])
+
     def test_batch_larger_than_batch_size(self):
         """Verify that batches larger than batch_size are handled correctly."""
         svc = SentenceTransformerEmbeddingService(batch_size=2)
         texts = [f"text {i}" for i in range(5)]
         result = svc.embed_documents(texts)
         assert len(result) == 5
+
+    def test_batch_ordering_and_determinism(self, embedding_service):
+        """Batch embedding must preserve chunk ordering and match query embeddings."""
+        texts = [
+            "Deep learning with neural networks",
+            "Photosynthesis in green plants",
+            "Quantum entanglement experiments",
+        ]
+        # Embed via small batch size forcing multiple batches
+        svc = SentenceTransformerEmbeddingService(batch_size=1)
+        batch_results = svc.embed_documents(texts)
+
+        assert len(batch_results) == 3
+        # Compare each to individual query embedding
+        for i, text in enumerate(texts):
+            query_vec = embedding_service.embed_query(text)
+            assert len(batch_results[i]) == len(query_vec)
+            # Dot product (cosine similarity since normalized) should be essentially 1.0
+            dot_product = sum(
+                a * b for a, b in zip(batch_results[i], query_vec, strict=True)
+            )
+            assert dot_product > 0.9999
 
 
 # ---------------------------------------------------------------

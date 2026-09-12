@@ -42,10 +42,14 @@ class SentenceTransformerEmbeddingService(EmbeddingService):
         model_name: str = DEFAULT_MODEL,
         batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
-        if not model_name or not model_name.strip():
+        if not isinstance(model_name, str) or not model_name.strip():
             raise ValueError("model_name must be a non-empty string")
-        if batch_size < 1:
-            raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+        if (
+            not isinstance(batch_size, int)
+            or isinstance(batch_size, bool)
+            or batch_size < 1
+        ):
+            raise ValueError(f"batch_size must be an integer >= 1, got {batch_size}")
 
         self._model_name = model_name.strip()
         self._batch_size = batch_size
@@ -176,3 +180,5 @@ class SentenceTransformerEmbeddingService(EmbeddingService):
         for i, t in enumerate(texts):
             if not isinstance(t, str):
                 raise ValueError(f"texts[{i}] must be a string, got {type(t).__name__}")
+            if not t.strip():
+                raise ValueError(f"texts[{i}] must be a non-empty string")

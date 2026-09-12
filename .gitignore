@@ -56,3 +56,5 @@ Desktop.ini
 
 # ===== Phase 3: Embeddings & Vector Store =====
 data/
+*.sqlite3
+*.sqlite

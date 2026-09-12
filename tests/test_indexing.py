@@ -11,6 +11,7 @@ Tests cover:
 from __future__ import annotations
 
 import tempfile
+from unittest.mock import patch
 
 import pytest
 
@@ -118,6 +119,16 @@ class TestBasicIndexing:
         with pytest.raises(ValueError, match="non-empty"):
             svc.index_chunks([])
 
+    def test_non_list_chunks_raises(self, indexing_service):
+        svc, _ = indexing_service
+        with pytest.raises(ValueError, match="non-empty"):
+            svc.index_chunks("not a list")  # type: ignore[arg-type]
+
+    def test_non_chunk_in_chunks_raises(self, indexing_service):
+        svc, _ = indexing_service
+        with pytest.raises(ValueError, match="Chunk instance"):
+            svc.index_chunks([_make_chunk(), "not a chunk"])  # type: ignore[list-item]
+
 
 # ---------------------------------------------------------------
 # Re-indexing
@@ -208,6 +219,44 @@ class TestReindexing:
         # Without reindex, both should exist (though same doc_id)
         # Note: reindex=False skips delete, so both chunks remain
         assert store.count() == 2
+
+    def test_reindex_embedding_failure_preserves_existing_data(self, indexing_service):
+        """If embedding fails, old chunks in the vector store must NOT be deleted."""
+        svc, store = indexing_service
+
+        # Step 1: Successfully index initial document
+        original_chunk = _make_chunk(
+            chunk_id="orig-chunk",
+            document_id="safe-doc",
+            content="Original safe content.",
+            chunk_index=0,
+        )
+        svc.index_chunks([original_chunk])
+        assert store.count() == 1
+
+        # Step 2: Attempt re-index with new chunk, but mock embedding failure
+        new_chunk = _make_chunk(
+            chunk_id="new-chunk",
+            document_id="safe-doc",
+            content="New content that will fail during embedding.",
+            chunk_index=0,
+        )
+
+        with patch.object(
+            svc._embedding_service,
+            "embed_documents",
+            side_effect=RuntimeError("Simulated embedding failure"),
+        ):
+            with pytest.raises(RuntimeError, match="Simulated embedding failure"):
+                svc.index_chunks([new_chunk], reindex=True)
+
+        # Step 3: Verify the original chunk was NOT deleted
+        assert store.count() == 1
+        query_vec = svc._embedding_service.embed_query("safe content")
+        results = store.query(query_vec, top_k=1)
+        assert len(results) == 1
+        assert results[0].chunk_id == "orig-chunk"
+        assert results[0].content == "Original safe content."
 
 
 # ---------------------------------------------------------------

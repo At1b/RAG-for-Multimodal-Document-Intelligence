@@ -154,6 +154,54 @@ class TestAddChunks:
         store.add_chunks([chunk_v2], [_make_embedding(value=0.2)])
         assert store.count() == 1  # still 1, overwritten
 
+    def test_in_batch_duplicate_ids_upsert(self, store):
+        """Duplicate chunk IDs within the same batch should overwrite earlier ones."""
+        chunk_v1 = _make_chunk(chunk_id="dup-1", content="version 1")
+        chunk_v2 = _make_chunk(chunk_id="dup-1", content="version 2 (latest)")
+        chunk_other = _make_chunk(chunk_id="other-1", content="other chunk")
+
+        store.add_chunks(
+            [chunk_v1, chunk_other, chunk_v2],
+            [
+                _make_embedding(value=0.1),
+                _make_embedding(value=0.2),
+                _make_embedding(value=0.3),
+            ],
+        )
+        assert store.count() == 2
+
+        results = store.query(_make_embedding(value=0.3), top_k=5)
+        v2_res = next(r for r in results if r.chunk_id == "dup-1")
+        assert v2_res.content == "version 2 (latest)"
+
+    def test_embedding_dimension_mismatch_raises(self, store):
+        chunks = [
+            _make_chunk(chunk_id="c1"),
+            _make_chunk(chunk_id="c2"),
+        ]
+        embeddings = [
+            _make_embedding(dim=384),
+            _make_embedding(dim=100),
+        ]
+        with pytest.raises(ValueError, match="dimension mismatch"):
+            store.add_chunks(chunks, embeddings)
+
+    def test_empty_embedding_vector_raises(self, store):
+        with pytest.raises(ValueError, match="non-empty"):
+            store.add_chunks([_make_chunk()], [[]])
+
+    def test_non_chunk_item_raises(self, store):
+        with pytest.raises(ValueError, match="Chunk instance"):
+            store.add_chunks(["not a chunk"], [_make_embedding()])  # type: ignore[list-item]
+
+    def test_non_list_embeddings_item_raises(self, store):
+        with pytest.raises(ValueError, match="non-empty list"):
+            store.add_chunks([_make_chunk()], ["not a list"])  # type: ignore[list-item]
+
+    def test_non_numeric_embedding_vector_raises(self, store):
+        with pytest.raises(ValueError, match="non-numeric"):
+            store.add_chunks([_make_chunk()], [["a", "b"]])  # type: ignore[list-item]
+
 
 # ---------------------------------------------------------------
 # query
@@ -219,9 +267,36 @@ class TestQuery:
         with pytest.raises(ValueError, match="non-empty"):
             store.query([], top_k=5)
 
+    def test_query_non_list_vector_raises(self, store):
+        with pytest.raises(ValueError, match="non-empty list"):
+            store.query("not a list", top_k=5)  # type: ignore[arg-type]
+
+    def test_query_non_numeric_vector_raises(self, store):
+        with pytest.raises(ValueError, match="numeric"):
+            store.query(["a", "b"], top_k=5)  # type: ignore[list-item]
+
     def test_query_invalid_top_k_raises(self, store):
         with pytest.raises(ValueError, match="top_k"):
             store.query(_make_embedding(), top_k=0)
+
+    def test_query_negative_top_k_raises(self, store):
+        with pytest.raises(ValueError, match="top_k"):
+            store.query(_make_embedding(), top_k=-5)
+
+    def test_query_bool_top_k_raises(self, store):
+        with pytest.raises(ValueError, match="top_k"):
+            store.query(_make_embedding(), top_k=True)  # type: ignore[arg-type]
+
+    def test_query_float_top_k_raises(self, store):
+        with pytest.raises(ValueError, match="top_k"):
+            store.query(_make_embedding(), top_k=3.5)  # type: ignore[arg-type]
+
+    def test_query_score_clamped_in_range(self, store):
+        chunk = _make_chunk()
+        store.add_chunks([chunk], [_make_embedding()])
+        results = store.query(_make_embedding(), top_k=1)
+        assert len(results) == 1
+        assert -1.0 <= results[0].score <= 1.0
 
 
 # ---------------------------------------------------------------
@@ -248,6 +323,7 @@ class TestMetadataPreservation:
         r = results[0]
 
         assert r.chunk_id == "meta-chunk"
+        assert r.metadata["chunk_id"] == "meta-chunk"
         assert r.document_id == "meta-doc"
         assert r.document_name == "report.pdf"
         assert r.metadata["source_type"] == "pdf"
@@ -268,6 +344,22 @@ class TestMetadataPreservation:
         results = store.query(_make_embedding(), top_k=1)
         assert results[0].metadata["char_count"] == 42
         assert results[0].metadata["custom_key"] == "custom_value"
+
+    def test_nan_and_inf_metadata_filtered(self, store):
+        chunk = _make_chunk(
+            metadata={
+                "valid_float": 1.23,
+                "nan_val": float("nan"),
+                "inf_val": float("inf"),
+                "neg_inf_val": float("-inf"),
+            }
+        )
+        store.add_chunks([chunk], [_make_embedding()])
+        results = store.query(_make_embedding(), top_k=1)
+        assert results[0].metadata["valid_float"] == 1.23
+        assert "nan_val" not in results[0].metadata
+        assert "inf_val" not in results[0].metadata
+        assert "neg_inf_val" not in results[0].metadata
 
     def test_page_number_none_handled(self, store):
         chunk = _make_chunk(page_number=None)
@@ -413,6 +505,17 @@ class TestReset:
         chunk = _make_chunk()
         store.add_chunks([chunk], [_make_embedding()])
         assert store.count() == 1
+
+    def test_reset_idempotent_even_if_already_deleted(self, store):
+        """Reset should work even if collection was already deleted externally."""
+        store.reset()
+        try:
+            store._client.delete_collection(store._collection_name)
+        except Exception:
+            pass
+        # Calling reset when collection does not exist should not raise
+        store.reset()
+        assert store.count() == 0
 
 
 # ---------------------------------------------------------------

@@ -117,6 +117,7 @@ Status: **COMPLETED**
 - **VectorSearchResult** model: chunk_id, document_id, document_name, content, score, metadata
 - **Re-indexing strategy**: Document-level replacement
   - Delete all existing chunks for `document_id` before inserting new version
+  - Embeddings generated *before* deletion to guarantee atomicity and prevent data loss on embedding failure
   - No stale chunks remain after re-processing
   - Deterministic behavior
 - **IndexingService**: Chunk → Embed → Store orchestrator in `rag/embeddings/indexing.py`
@@ -124,27 +125,35 @@ Status: **COMPLETED**
   - Configurable re-indexing (`reindex=True` by default)
   - Batch embedding via EmbeddingService
 - **Metadata preservation**: Every stored vector retains chunk_id, document_id, document_name, source_type, page_number, chunk_index, and custom chunk metadata
-- **Configuration added**:
-  - `EMBEDDING_MODEL=all-MiniLM-L6-v2`
-  - `EMBEDDING_BATCH_SIZE=64`
-  - `VECTOR_STORE_PATH=data/vectorstore`
-  - `VECTOR_STORE_COLLECTION=mmrag_chunks`
-  - `VECTOR_SEARCH_TOP_K=10`
-  - Field validators for `embedding_batch_size` (>= 1) and `vector_search_top_k` (>= 1)
-- **Security**: `data/` directory added to `.gitignore` (prevents committing vector store data, model caches)
+- **Configuration added & hardened**:
+  - `EMBEDDING_MODEL=all-MiniLM-L6-v2` (non-empty string validation)
+  - `EMBEDDING_BATCH_SIZE=64` (>= 1 validation)
+  - `VECTOR_STORE_PATH=data/vectorstore` (non-empty path validation)
+  - `VECTOR_STORE_COLLECTION=mmrag_chunks` (3-512 chars, alphanumeric boundary validation)
+  - `VECTOR_SEARCH_TOP_K=10` (>= 1 validation)
+- **Security**: `data/`, `*.sqlite3`, `*.sqlite` added to `.gitignore` (prevents committing vector store data and model caches)
 - **Dependencies added**: `sentence-transformers>=3.0.0`, `chromadb>=0.5.0`
 - **Hardening & Edge-Case Protection**:
   - Lazy model loading avoids import-time cost and failure
-  - Empty/non-string input validation on all embedding methods
+  - Empty/non-string and empty/whitespace string validation on all embedding methods
+  - Strict type checking on `model_name` and `batch_size`
+  - Order preservation and determinism across multiple batch encoding passes verified
   - ChromaDB `PersistentClient` file lock handling in tests (`ignore_cleanup_errors=True` for Windows compatibility)
-  - Score conversion: ChromaDB cosine distance → similarity (1.0 - distance)
-  - `top_k` clamped to available count to avoid ChromaDB errors on empty/small stores
-  - Flat metadata serialization for ChromaDB compatibility (only str/int/float/bool values)
-- **257 total tests passing** (73 new Phase 3 tests + 184 Phase 1+2):
-  - 28 embedding tests (interface, init, dimension, batch, query, unicode, invalid model)
-  - 37 vector store tests (interface, init, add, query, metadata, delete, reindex, count, reset, persistence, collections)
-  - 8 indexing integration tests (pipeline, reindex, metadata round-trip, semantic similarity)
-- Ruff lint and format checks pass (100% clean)
+  - In-batch duplicate chunk ID deduplication in `add_chunks` (latest occurrence supersedes earlier ones, order preserved, warning logged, preventing ChromaDB `DuplicateIDError`)
+  - Batch embedding dimension mismatch and empty vector validation in `add_chunks`
+  - Chunk ID explicitly preserved in `VectorSearchResult.metadata["chunk_id"]`
+  - Non-finite float metadata (`math.isnan`, `math.isinf`) filtered out to prevent index corruption
+  - Query similarity score clamped to `[-1.0, 1.0]`
+  - Query results safely unpack `None` values in Chroma response dictionaries
+  - Atomic re-indexing ordering: `embed_documents` executed before `delete_document` in `IndexingService.index_chunks` so failures never wipe existing collections
+  - Idempotent collection reset protecting against `NotFoundError`
+  - Direct primary-key deletion via `ids=existing["ids"]` in `delete_document`
+- **298 total tests passing** (114 Phase 3 tests + 184 Phase 1+2):
+  - 34 embedding tests (interface, init, dimension, batch, query, unicode, invalid model, empty/whitespace strings, multi-batch determinism)
+  - 50 vector store tests (interface, init, add, in-batch dupes, dimension mismatch, query, metadata, delete, reindex, count, reset, persistence, collections, nan/inf safety, score clamping)
+  - 11 indexing integration tests (pipeline, atomic reindex safety, metadata round-trip, semantic similarity, type validation)
+  - 19 configuration tests (defaults, custom, field validators for model, path, collection naming rules, batch size, top_k)
+- Ruff lint and format checks pass (100% clean, 41 files formatted)
 
 ---
 

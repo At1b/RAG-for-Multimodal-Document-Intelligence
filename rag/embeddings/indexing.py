@@ -58,10 +58,22 @@ class IndexingService:
             ValueError: If *chunks* is empty.
             RuntimeError: If embedding or storage fails.
         """
-        if not chunks:
+        if not isinstance(chunks, list) or len(chunks) == 0:
             raise ValueError("chunks must be a non-empty list")
+        for i, c in enumerate(chunks):
+            if not isinstance(c, Chunk):
+                raise ValueError(
+                    f"chunks[{i}] must be a Chunk instance, got {type(c).__name__}"
+                )
 
-        # Re-indexing: delete existing chunks per document.
+        # Generate embeddings first (failsafe: if embedding fails, existing
+        # chunks in the vector store remain untouched).
+        texts = [c.content for c in chunks]
+        logger.info("Generating embeddings for %d chunks ...", len(texts))
+        embeddings = self._embedding_service.embed_documents(texts)
+
+        # Re-indexing: delete existing chunks per document only after
+        # embeddings are successfully generated.
         if reindex:
             doc_ids = {c.document_id for c in chunks}
             for doc_id in doc_ids:
@@ -72,11 +84,6 @@ class IndexingService:
                         deleted,
                         doc_id,
                     )
-
-        # Generate embeddings.
-        texts = [c.content for c in chunks]
-        logger.info("Generating embeddings for %d chunks ...", len(texts))
-        embeddings = self._embedding_service.embed_documents(texts)
 
         # Store in vector store.
         self._vector_store.add_chunks(chunks, embeddings)
