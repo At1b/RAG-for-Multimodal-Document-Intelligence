@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     max_upload_size_mb: int = 50
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Phase 1 — Document Ingestion**
+**Phase 2 — Normalization and Chunking**
 
 Status: **COMPLETED**
 
@@ -51,6 +51,31 @@ Status: **COMPLETED**
 - 80 tests pass (27 new edge-case tests + 50 Phase 1 + 3 Phase 0)
 - Ruff lint and format checks pass (100% clean)
 
+### Phase 2 — Normalization and Chunking
+
+- Chunk model (Pydantic): `Chunk` with chunk_id, document_id, document_name, source_type, content, page_number, chunk_index, metadata
+- Chunk ID generation (UUID4, isolated in `chunk_id` module — mirrors `document_id` pattern)
+- Text cleaning / normalization:
+  - Line ending normalization (CRLF, CR → LF)
+  - Tab-to-space conversion
+  - Per-line whitespace stripping
+  - Horizontal whitespace collapsing (2+ → single space)
+  - Excessive blank line collapsing (3+ newlines → double newline, preserving paragraph breaks)
+  - Full-text leading/trailing whitespace stripping
+  - Conservative: no lowercasing, no punctuation removal, no stop-word removal
+- Chunking strategy: fixed-size character chunking with configurable overlap
+  - Defaults: chunk_size=1000, chunk_overlap=200
+  - Validation: chunk_size > 0, overlap >= 0, overlap < chunk_size
+  - Deterministic behavior
+  - Infinite-loop guard (step always >= 1)
+  - Handles: empty text, whitespace-only, short text, exact boundary, very long text
+- Page-number tracking: proportional mapping from cleaned-text offset to raw page boundaries
+- Metadata preservation: document_id, document_name, source_type, page_number carried through
+- Chunk metadata includes: char_count, chunk_size config, chunk_overlap config
+- Configuration: CHUNK_SIZE and CHUNK_OVERLAP added to backend Settings and .env.example
+- 59 new Phase 2 tests + 80 existing = 139 total tests passing
+- Ruff lint and format checks pass (100% clean)
+
 ---
 
 ## Technology Stack (Implemented)
@@ -91,6 +116,13 @@ Status: **COMPLETED**
 | 50 MB default upload limit | Reasonable for document processing; configurable via Settings |
 | Stream / BytesIO loader reading | Prevents C library / zipfile OS handle locks on Windows during temp cleanup |
 | Chunked upload streaming | Avoids reading massive uploads into memory before size validation |
+| UUID4 for chunk IDs | Same strategy as document IDs; isolated in `chunk_id` module for future swap |
+| Fixed-size character chunking | Simple, deterministic, no external NLP dependencies; replaceable later |
+| 1000 char chunk_size default | ~200-250 words; fits typical embedding model context windows |
+| 200 char chunk_overlap default | Enough to avoid mid-sentence breaks at boundaries |
+| Conservative text cleaning | Preserves semantic content; only normalizes whitespace artifacts |
+| Proportional page-number mapping | Handles cleaned-text offset drift; assigns chunk to starting page |
+| No new dependencies for Phase 2 | Only uses Pydantic (already installed) and Python stdlib |
 
 ---
 
@@ -109,12 +141,13 @@ Status: **COMPLETED**
 - Tables in DOCX are extracted as pipe-separated plain text
 - No document persistence/storage — in-memory processing only
 - No database — documents are processed and returned, not stored
+- Chunking is character-based only; no sentence-aware or semantic chunking
+- Page-number assignment uses proportional offset mapping, which may be slightly approximate when cleaning changes text length significantly
 
 ---
 
 ## Not Started
 
-- Text normalization and chunking (Phase 2)
 - Embeddings and vector store (Phase 3)
 - Semantic retrieval (Phase 4)
 - LLM generation (Phase 5)
@@ -129,12 +162,12 @@ Status: **COMPLETED**
 
 ## Next Immediate Tasks
 
-1. Begin Phase 2 — Normalization and Chunking
-2. Implement text cleaning/normalization
-3. Implement chunking strategy with configurable size and overlap
-4. Preserve metadata through chunking
-5. Generate unique chunk IDs
+1. Begin Phase 3 — Embeddings and Vector Store
+2. Define embedding interface
+3. Select initial embedding model
+4. Implement embedding generation for chunks
+5. Select and integrate vector store
 
 ---
 
-Last Updated: 2026-09-11
+Last Updated: 2026-09-12
