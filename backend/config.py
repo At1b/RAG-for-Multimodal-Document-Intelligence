@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     def _vector_search_top_k_positive(cls, v: int) -> int:
         if v < 1:
             raise ValueError(f"vector_search_top_k must be >= 1, got {v}")
+        if v > 1000:
+            raise ValueError(f"vector_search_top_k must be <= 1000, got {v}")
         return v
 
     @model_validator(mode="after")

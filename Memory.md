@@ -155,56 +155,69 @@ Status: **COMPLETED**
   - 19 configuration tests (defaults, custom, field validators for model, path, collection naming rules, batch size, top_k)
 - Ruff lint and format checks pass (100% clean, 41 files formatted)
 
-### Phase 4 — Basic Semantic Retrieval
+### Phase 4 — Basic Semantic Retrieval (Hardened)
 
+- **Status**: Completed & Hardened
 - **Retriever interface**: Abstract `Retriever` (ABC) in `rag/retrieval/base.py`
   - `retrieve(query, top_k)` → `list[VectorSearchResult]`
   - `top_k` optional; defaults to configurable value when `None`
   - Replaceable: swap concrete class for future retrieval strategies (hybrid, reranking)
 - **Concrete implementation**: `SemanticRetriever` in `rag/retrieval/semantic.py`
   - Thin composable layer delegating to existing Phase 3 services
-  - Flow: Query Validation → `EmbeddingService.embed_query()` → `VectorStore.query()` → Top-K `VectorSearchResult`
+  - Flow: Query Validation & Sanitization → `EmbeddingService.embed_query()` → `VectorStore.query()` → Top-K `VectorSearchResult`
   - No embedding or vector-store logic duplicated
 - **Result model decision**: Reuses Phase 3 `VectorSearchResult` directly
   - `VectorSearchResult` already preserves: chunk_id, document_id, document_name, content, score, metadata
   - Metadata contains: source_type, page_number, chunk_index, and custom metadata
   - No new result model needed — avoids unnecessary duplication
-- **Query validation**:
+- **Query validation & sanitization**:
   - Empty string → `InvalidQueryError`
   - Whitespace-only → `InvalidQueryError`
   - Non-string types → `InvalidQueryError`
+  - Invisible characters / null-byte only inputs (`\x00`, `\ufeff`, `\u200b`) → `InvalidQueryError`
   - Exceeds `MAX_QUERY_LENGTH` (10,000 chars) → `InvalidQueryError`
-  - Unicode text → fully supported
-- **top_k behavior**:
+  - Unicode text → fully supported (CJK, Arabic, emojis, accented characters)
+  - Null bytes in valid queries stripped before embedding
+- **top_k behavior & resource safety**:
   - Caller-provided `top_k` overrides default
   - Default from `default_top_k` constructor parameter (maps to `VECTOR_SEARCH_TOP_K` setting)
-  - Validated: must be int ≥ 1, rejects bool/float/zero/negative
-  - Upper bound: `MAX_TOP_K = 1000` prevents resource abuse
+  - Validated: must be int ≥ 1, rejects bool/float/zero/negative/string
+  - Upper bound: `MAX_TOP_K = 1000` enforced at runtime, constructor, and Settings level
+  - Invalid top_k raises `InvalidTopKError` (subclass of `InvalidQueryError`)
   - Fewer results returned naturally when collection is smaller than top_k
   - Empty vector store returns empty list (no fabricated results)
 - **Ordering and scores**: Results preserve vector store ordering (cosine similarity, descending); scores passed through unchanged
 - **Exception hierarchy**: `rag/retrieval/exceptions.py`
   - `RetrievalError` (base)
   - `InvalidQueryError` — invalid user query
-  - `EmbeddingError` — embedding service failure (wraps cause)
-  - `VectorStoreError` — vector store failure (wraps cause)
+  - `InvalidTopKError(InvalidQueryError)` — invalid top_k parameter
+  - `EmbeddingError` — embedding service failure or malformed vector (wraps cause)
+  - `VectorStoreError` — vector store search failure or malformed results (wraps cause)
   - Follows same pattern as `rag/ingestion/exceptions.py`
+- **Hardening improvements (Secondary Review)**:
+  - Fixed unbounded `default_top_k` vulnerability: enforced `1 <= default_top_k <= MAX_TOP_K` in `SemanticRetriever.__init__`
+  - Fixed unbounded `Settings.vector_search_top_k`: added `v <= 1000` validator in `backend/config.py`
+  - Added query sanitization against null bytes, BOM, and zero-width spaces; rejects invisible-only inputs
+  - Added component boundary vector validation in `_embed_query` (validates non-empty list of finite numbers, correctly attributes embedding anomalies to `EmbeddingError`)
+  - Added component boundary result validation in `_search` (verifies vector store returned a list)
+  - Introduced `InvalidTopKError` inheriting from `InvalidQueryError` for parameter-specific error handling while preserving backward compatibility
 - **No new dependencies added**
-- **No new configuration values**: Reuses existing `VECTOR_SEARCH_TOP_K` from Phase 3
+- **No new configuration values**: Reuses existing `VECTOR_SEARCH_TOP_K` from Phase 3 with upper bound enforced
 - **No API endpoint added**: Phase 4 is retrieval layer only (API deferred to Phase 6)
-- **367 total tests passing** (69 Phase 4 tests + 298 Phase 1–3):
+- **383 total tests passing** (83 Phase 4 tests + 184 Phase 1–2 + 116 Phase 3):
   - 3 interface tests (ABC contract, subclass, method existence)
-  - 6 constructor validation tests (type checks, default_top_k validation)
-  - 10 query validation tests (empty, whitespace, non-string, unicode, long, max-length, valid)
-  - 10 top_k tests (default, override, one, zero, negative, bool, float, max, at-max, fewer-results)
+  - 8 constructor validation tests (type checks, default_top_k zero/negative/bool, upper bound rejection, max bound acceptance)
+  - 14 query validation tests (empty, whitespace, non-string, unicode, long, max-length, valid, null-only, zero-width-only, BOM-only, null-sanitized)
+  - 11 top_k tests (default, override, one, zero, negative, bool, float, max, at-max, fewer-results, invalid_top_k_error)
   - 4 basic retrieval tests (returns list, result types, query vector passing, multiple results)
   - 9 metadata preservation tests (chunk_id, document_id, document_name, content, score, source_type, page_number, chunk_index, custom metadata)
   - 3 ordering/scores tests (preserve ordering, floats, near-equal scores)
   - 2 empty vector store tests (empty list, no fabrication)
-  - 6 dependency failure tests (embedding error, vector store error, cause preservation)
+  - 11 dependency failure tests (embedding error, vector store error, cause preservation, empty vector, none vector, nan vector, inf vector, non-list vector store result)
   - 1 multiple documents test (cross-document retrieval)
-  - 4 exception hierarchy tests (subclass relationships)
+  - 6 exception hierarchy tests (subclass relationships including InvalidTopKError)
   - 11 integration tests (real SentenceTransformer + ChromaDB: relevant query, unrelated query scores, top_k limits, top_k > collection, metadata round-trip, ordering, multi-doc, unicode, empty store, float scores, custom metadata)
+  - 21 configuration tests (defaults, custom, field validators for model, path, collection naming rules, batch size, top_k bounds)
 - Ruff lint and format checks pass (100% clean, 46 files formatted)
 
 ---
@@ -273,6 +286,9 @@ Status: **COMPLETED**
 | MAX_QUERY_LENGTH = 10,000 chars | Prevents excessive embedding compute; well above practical query lengths |
 | MAX_TOP_K = 1,000 | Prevents unbounded resource usage; far above practical retrieval needs |
 | Exception wrapping in retriever | Downstream exceptions wrapped into RetrievalError hierarchy; preserves cause chain for debugging |
+| InvalidTopKError(InvalidQueryError) | Differentiates top_k errors from query text errors while maintaining full backward compatibility |
+| Component boundary validation | Validates embedding vectors and vector store results before passing downstream; prevents misleading error attribution |
+| default_top_k and Settings upper bound | Enforces MAX_TOP_K = 1000 across Settings, __init__, and runtime to prevent resource abuse |
 | No new config values for Phase 4 | Reuses VECTOR_SEARCH_TOP_K; avoids duplicate settings |
 | No API endpoint in Phase 4 | Retrieval is an internal service; API integration deferred to Phase 6 (end-to-end baseline) |
 
@@ -325,4 +341,4 @@ Status: **COMPLETED**
 
 ---
 
-Last Updated: 2026-09-14
+Last Updated: 2026-09-15

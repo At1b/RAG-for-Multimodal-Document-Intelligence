@@ -25,6 +25,7 @@ from rag.retrieval.base import Retriever
 from rag.retrieval.exceptions import (
     EmbeddingError,
     InvalidQueryError,
+    InvalidTopKError,
     RetrievalError,
     VectorStoreError,
 )
@@ -175,6 +176,20 @@ class TestConstructorValidation:
                 mock_embedding_service, mock_vector_store, default_top_k=True
             )
 
+    def test_rejects_exceeds_max_default_top_k(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        with pytest.raises(ValueError, match="default_top_k"):
+            SemanticRetriever(
+                mock_embedding_service, mock_vector_store, default_top_k=MAX_TOP_K + 1
+            )
+
+    def test_accepts_max_default_top_k(self, mock_embedding_service, mock_vector_store):
+        r = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, default_top_k=MAX_TOP_K
+        )
+        assert r._default_top_k == MAX_TOP_K
+
     def test_valid_construction(self, mock_embedding_service, mock_vector_store):
         r = SemanticRetriever(
             mock_embedding_service, mock_vector_store, default_top_k=20
@@ -244,6 +259,25 @@ class TestQueryValidation:
         """The exact query string is passed to embed_query."""
         mock_vector_store.query.return_value = []
         retriever.retrieve("test query")
+        mock_embedding_service.embed_query.assert_called_once_with("test query")
+
+    def test_null_bytes_only_query_raises(self, retriever):
+        with pytest.raises(InvalidQueryError, match="non-empty"):
+            retriever.retrieve("\x00\x00\x00")
+
+    def test_zero_width_spaces_only_query_raises(self, retriever):
+        with pytest.raises(InvalidQueryError, match="non-empty"):
+            retriever.retrieve("\u200b\u200b  \t")
+
+    def test_bom_only_query_raises(self, retriever):
+        with pytest.raises(InvalidQueryError, match="non-empty"):
+            retriever.retrieve("\ufeff")
+
+    def test_query_null_bytes_sanitized_before_embedding(
+        self, retriever, mock_embedding_service, mock_vector_store
+    ):
+        mock_vector_store.query.return_value = []
+        retriever.retrieve("test\x00 query")
         mock_embedding_service.embed_query.assert_called_once_with("test query")
 
 
@@ -320,6 +354,13 @@ class TestTopKBehavior:
         ]
         results = retriever.retrieve("test", top_k=100)
         assert len(results) == 2
+
+    def test_invalid_top_k_raises_invalid_top_k_error(self, retriever):
+        """Invalid top_k raises InvalidTopKError specifically."""
+        with pytest.raises(InvalidTopKError):
+            retriever.retrieve("test", top_k=-1)
+        with pytest.raises(InvalidTopKError):
+            retriever.retrieve("test", top_k=MAX_TOP_K + 1)
 
 
 # ======================================================================
@@ -546,6 +587,42 @@ class TestDependencyFailures:
             retriever.retrieve("test")
         assert exc_info.value.__cause__ is original
 
+    def test_embedding_returns_empty_list_raises_embedding_error(
+        self, retriever, mock_embedding_service
+    ):
+        mock_embedding_service.embed_query.return_value = []
+        with pytest.raises(EmbeddingError, match="invalid vector"):
+            retriever.retrieve("test")
+
+    def test_embedding_returns_none_raises_embedding_error(
+        self, retriever, mock_embedding_service
+    ):
+        mock_embedding_service.embed_query.return_value = None
+        with pytest.raises(EmbeddingError, match="invalid vector"):
+            retriever.retrieve("test")
+
+    def test_embedding_returns_nan_raises_embedding_error(
+        self, retriever, mock_embedding_service
+    ):
+        mock_embedding_service.embed_query.return_value = [0.1, float("nan"), 0.3]
+        with pytest.raises(EmbeddingError, match="non-numeric or non-finite"):
+            retriever.retrieve("test")
+
+    def test_embedding_returns_inf_raises_embedding_error(
+        self, retriever, mock_embedding_service
+    ):
+        mock_embedding_service.embed_query.return_value = [0.1, float("inf"), 0.3]
+        with pytest.raises(EmbeddingError, match="non-numeric or non-finite"):
+            retriever.retrieve("test")
+
+    def test_vector_store_returns_non_list_raises_vector_store_error(
+        self, retriever, mock_embedding_service, mock_vector_store
+    ):
+        mock_embedding_service.embed_query.return_value = [0.1] * 10
+        mock_vector_store.query.return_value = "not a list"
+        with pytest.raises(VectorStoreError, match="non-list"):
+            retriever.retrieve("test")
+
 
 # ======================================================================
 # 10. Multiple Documents
@@ -593,6 +670,12 @@ class TestExceptionHierarchy:
 
     def test_invalid_query_is_retrieval_error(self):
         assert issubclass(InvalidQueryError, RetrievalError)
+
+    def test_invalid_top_k_is_invalid_query_error(self):
+        assert issubclass(InvalidTopKError, InvalidQueryError)
+
+    def test_invalid_top_k_is_retrieval_error(self):
+        assert issubclass(InvalidTopKError, RetrievalError)
 
     def test_embedding_error_is_retrieval_error(self):
         assert issubclass(EmbeddingError, RetrievalError)

@@ -116,3 +116,11 @@ class TestVectorSearchTopKValidation:
     def test_negative_top_k_raises(self):
         with pytest.raises(ValidationError, match="vector_search_top_k"):
             Settings(vector_search_top_k=-5)
+
+    def test_exceeds_max_top_k_raises(self):
+        with pytest.raises(ValidationError, match="vector_search_top_k"):
+            Settings(vector_search_top_k=1001)
+
+    def test_at_max_top_k_valid(self):
+        s = Settings(vector_search_top_k=1000)
+        assert s.vector_search_top_k == 1000

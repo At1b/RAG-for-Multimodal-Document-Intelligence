@@ -13,6 +13,10 @@ class InvalidQueryError(RetrievalError):
     """The user query is invalid (empty, whitespace-only, wrong type)."""
 
 
+class InvalidTopKError(InvalidQueryError):
+    """The top_k parameter is invalid (wrong type, <= 0, > MAX_TOP_K)."""
+
+
 class EmbeddingError(RetrievalError):
     """The embedding service failed to embed the query."""
 
