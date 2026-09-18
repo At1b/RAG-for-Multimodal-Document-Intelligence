@@ -57,6 +57,7 @@ MM-RAG/
 - Python 3.10+
 - Node.js 20+
 - Git
+- [Ollama](https://ollama.com/download) (for LLM generation)
 
 ### Backend Setup
 
@@ -83,6 +84,24 @@ Verify it's running:
 ```bash
 curl http://localhost:8000/health
 ```
+
+### LLM Setup (Ollama)
+
+The generation layer uses [Ollama](https://ollama.com) to run a local LLM. No API key is required.
+
+```bash
+# 1. Install Ollama from https://ollama.com/download
+
+# 2. Start the Ollama server
+ollama serve
+
+# 3. Pull the default model (~638 MB)
+ollama pull tinyllama
+```
+
+Ollama runs on `http://localhost:11434` by default. You can change this in your `.env` file via `LLM_BASE_URL`.
+
+To use a different model, update `LLM_MODEL` in `.env` (e.g. `LLM_MODEL=llama3`).
 
 ### Frontend Setup
 

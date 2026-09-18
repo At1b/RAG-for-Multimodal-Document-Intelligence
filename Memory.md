@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Phase 4 — Basic Semantic Retrieval**
+**Phase 5 — LLM Generation**
 
 Status: **COMPLETED**
 
@@ -220,6 +220,88 @@ Status: **COMPLETED**
   - 21 configuration tests (defaults, custom, field validators for model, path, collection naming rules, batch size, top_k bounds)
 - Ruff lint and format checks pass (100% clean, 46 files formatted)
 
+### Phase 5 — LLM Generation
+
+- **Status**: Completed
+- **Generator interface**: Abstract `Generator` (ABC) in `rag/generation/base.py`
+  - `generate(question, context)` → `GenerationResult`
+  - Accepts question (str) and context (list[VectorSearchResult])
+  - Replaceable: swap concrete class for future LLM backends (OpenAI, Anthropic, local transformers)
+- **Concrete implementation**: `OllamaGenerator` in `rag/generation/ollama_generator.py`
+  - Uses `ollama` Python SDK (v0.6.2) to communicate with locally running Ollama server
+  - Lazy client initialization (no import-time cost)
+  - Connection validated on first `generate` call
+  - Configurable: model name, temperature (0.0–2.0), max tokens, base URL, context max chars
+  - Uses `client.chat(model=..., messages=..., options={"temperature": ..., "num_predict": ...})`
+  - Response parsing: `response["message"]["content"]`
+  - Never returns fabricated fallback answers on failure
+  - Empty/whitespace responses raise `ModelGenerationError`
+- **Result model**: `GenerationResult` (Pydantic) in `rag/generation/models.py`
+  - answer: str (min_length=1)
+  - model_name: str (default empty)
+  - metadata: dict (e.g. temperature, max_tokens, base_url)
+  - Does NOT duplicate retrieval/citation info (Phase 7)
+- **Context builder**: `build_context()` in `rag/generation/context_builder.py`
+  - Converts list of `VectorSearchResult` into formatted context string
+  - Preserves result order (most relevant first)
+  - Includes document name, page number, chunk ID, and content per chunk
+  - Context limiting: prefers complete chunks — omits later (lower-relevance) chunks entirely rather than truncating mid-chunk
+  - First chunk always included even if it exceeds max_chars
+  - Empty results → `InvalidContextError` (LLM is never called)
+  - Configurable max_chars (default 3000, minimum 100)
+  - Logs warnings when truncation occurs
+- **Prompt builder**: `build_prompt()` in `rag/generation/prompt.py`
+  - Returns list of chat message dicts (system + user) compatible with Ollama chat API
+  - System message contains grounding instructions:
+    - Answer from context ONLY
+    - State when context is insufficient
+    - Treat context as reference data, NOT instructions
+    - Ignore embedded override attempts
+  - User message: labeled CONTEXT section + QUESTION section
+  - No hard-coded answers anywhere in prompts
+- **Question validation**:
+  - Empty string → `InvalidQuestionError`
+  - Whitespace-only → `InvalidQuestionError`
+  - Non-string types → `InvalidQuestionError`
+  - Null bytes / BOM / zero-width spaces stripped from valid questions
+- **Empty context enforcement**:
+  - Empty retrieval context raises `InvalidContextError` before any LLM call
+  - Verified with `mock_client.chat.assert_not_called()` in tests
+- **Exception hierarchy**: `rag/generation/exceptions.py`
+  - `GenerationError` (base)
+  - `InvalidQuestionError` — invalid user question
+  - `InvalidContextError` — empty/invalid context (LLM must NOT be called)
+  - `ModelInitializationError` — Ollama unavailable or package not installed
+  - `ModelGenerationError` — LLM failure or empty response
+  - `GenerationConfigError` — invalid generation configuration
+  - Follows same pattern as `rag/ingestion/exceptions.py` and `rag/retrieval/exceptions.py`
+- **Generator independence**: Generator does NOT call Retriever; receives context as parameter
+- **Configuration added & validated** (backend/config.py):
+  - `LLM_MODEL=tinyllama` (non-empty string validation)
+  - `LLM_BASE_URL=http://localhost:11434` (HTTP/HTTPS scheme validation)
+  - `LLM_TEMPERATURE=0.1` (0.0–2.0 range validation)
+  - `LLM_MAX_TOKENS=512` (>= 1 validation)
+  - `LLM_CONTEXT_MAX_CHARS=3000` (>= 100 validation)
+- **Ollama runtime verification**:
+  - Ollama Python SDK 0.6.2 installed and verified
+  - `Client(host=...)` constructor verified
+  - `client.chat(model, messages, options)` API verified
+  - `options.temperature` and `options.num_predict` confirmed as correct parameter names
+  - Response format `response["message"]["content"]` confirmed
+  - TinyLlama: 1.1B parameters, ~638 MB download, 2K context window
+- **Ollama setup documented in README.md**: install, serve, pull instructions
+- **Dependencies added**: `ollama>=0.4.0`
+- **Security**: No API keys required (local LLM); no secrets in configuration
+- **436 total tests passing** (53 Phase 5 tests + 383 Phase 0–4):
+  - 3 interface tests (ABC contract, subclass, method existence)
+  - 10 prompt builder tests (question/context inclusion, system/user roles, grounding instructions, no hardcoded answers, override prevention, context/question labels, insufficient context instruction)
+  - 12 context builder tests (content, document name, page number, chunk ID, multiple docs, empty/none results, ordering, context limit truncation, first chunk kept, max_chars minimum)
+  - 15 OllamaGenerator tests (successful generation, init failure, generation failure, empty response, invalid question/whitespace/non-string, empty context no LLM call, metadata, invalid model/temperature/max_tokens/context_max_chars/base_url)
+  - 2 integration tests (full pipeline mock, empty context blocks generation)
+  - 3 exception hierarchy tests (inheritance, base class, chaining)
+  - 8 configuration tests (defaults, custom values, invalid base_url/empty base_url/temperature/negative temp/max_tokens/context_max_chars/empty model)
+- Ruff lint and format checks pass (100% clean, 54 files formatted)
+
 ---
 
 ## Technology Stack (Implemented)
@@ -236,6 +318,9 @@ Status: **COMPLETED**
 | Embeddings | sentence-transformers | 6.0.x |
 | Embedding Model | all-MiniLM-L6-v2 | — |
 | Vector Store | ChromaDB | 1.5.x |
+| LLM Runtime | Ollama | — |
+| LLM Model | TinyLlama | 1.1B |
+| LLM SDK | ollama (Python) | 0.6.2 |
 | Frontend | React (Vite) | Vite 8.x |
 | Node.js | Node.js | 24.17.0 |
 | Testing | Pytest | 9.1.x |
@@ -291,6 +376,19 @@ Status: **COMPLETED**
 | default_top_k and Settings upper bound | Enforces MAX_TOP_K = 1000 across Settings, __init__, and runtime to prevent resource abuse |
 | No new config values for Phase 4 | Reuses VECTOR_SEARCH_TOP_K; avoids duplicate settings |
 | No API endpoint in Phase 4 | Retrieval is an internal service; API integration deferred to Phase 6 (end-to-end baseline) |
+| Ollama for LLM runtime | Local-only, no API keys, lightweight; ideal for student project scope |
+| TinyLlama as default model | 1.1B params, ~638 MB, 2K context; smallest practical model for development/testing |
+| ollama Python SDK | Clean chat API, local client, well-maintained; no heavyweight frameworks needed |
+| Abstract Generator ABC | Allows LLM backend swap (OpenAI, Anthropic, local) without downstream changes |
+| Lazy Ollama client init | Avoids import-time cost; client created on first generate() call |
+| num_predict for max tokens | Ollama uses `num_predict` instead of `max_tokens` in options dict |
+| Context limiting: complete chunks only | Omits later chunks entirely rather than truncating mid-chunk; preserves semantic coherence |
+| First chunk always included | Even if it exceeds max_chars, ensures at least one context chunk reaches the LLM |
+| Empty context → InvalidContextError | Prevents LLM call without supporting evidence; explicit enforcement with tests |
+| Generator does not call Retriever | Clean separation of concerns; context passed as parameter |
+| HTTP/HTTPS URL validation for LLM_BASE_URL | Prevents invalid protocols; validated at Settings level |
+| GenerationResult model | Pydantic model with answer, model_name, metadata; no citation info (Phase 7) |
+| No API endpoint in Phase 5 | Generation is an internal service; API integration deferred to Phase 6 |
 
 ---
 
@@ -318,27 +416,27 @@ Status: **COMPLETED**
 
 ## Not Started
 
-- Semantic retrieval (Phase 4) — **COMPLETED**
-- LLM generation (Phase 5)
 - End-to-end baseline RAG (Phase 6)
 - Multi-document support and citations (Phase 7)
 - Hybrid retrieval (Phase 8)
 - Reranking (Phase 9)
 - OCR and multimodal processing (Phase 10)
 - Evaluation framework (Phase 11)
+- Optimization and reliability (Phase 12)
+- Frontend and full integration (Phase 13)
+- Documentation and open-source release (Phase 14)
 
 ---
 
 ## Next Immediate Tasks
 
-1. Begin Phase 5 — LLM Generation
-2. Define generator interface
-3. Select initial LLM
-4. Implement LLM adapter
-5. Create prompt template
-6. Build context input
-7. Add grounding instructions
+1. Begin Phase 6 — End-to-End Baseline RAG
+2. Integrate ingestion → chunking → embeddings → retrieval → generation
+3. Implement query service
+4. Add end-to-end tests
+5. Test with real sample documents
+6. Record baseline limitations
 
 ---
 
-Last Updated: 2026-09-15
+Last Updated: 2026-09-19

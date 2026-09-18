@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+import re
 from typing import Self
 
 from pydantic import field_validator, model_validator
@@ -27,6 +28,13 @@ class Settings(BaseSettings):
     vector_store_path: str = "data/vectorstore"
     vector_store_collection: str = "mmrag_chunks"
     vector_search_top_k: int = 10
+
+    # Phase 5: LLM Generation
+    llm_model: str = "tinyllama"
+    llm_base_url: str = "http://localhost:11434"
+    llm_temperature: float = 0.1
+    llm_max_tokens: int = 512
+    llm_context_max_chars: int = 3000
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
@@ -107,6 +115,50 @@ class Settings(BaseSettings):
                 f"chunk_size ({self.chunk_size})"
             )
         return self
+
+    # ------------------------------------------------------------------
+    # Phase 5: LLM Generation validators
+    # ------------------------------------------------------------------
+
+    @field_validator("llm_model")
+    @classmethod
+    def _llm_model_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("llm_model must be a non-empty string")
+        return v.strip()
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def _llm_base_url_valid(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("llm_base_url must be a non-empty string")
+        stripped = v.strip()
+        if not re.match(r"^https?://", stripped, re.IGNORECASE):
+            raise ValueError(
+                f"llm_base_url must be a valid HTTP or HTTPS URL, got '{stripped}'"
+            )
+        return stripped
+
+    @field_validator("llm_temperature")
+    @classmethod
+    def _llm_temperature_range(cls, v: float) -> float:
+        if v < 0.0 or v > 2.0:
+            raise ValueError(f"llm_temperature must be between 0.0 and 2.0, got {v}")
+        return v
+
+    @field_validator("llm_max_tokens")
+    @classmethod
+    def _llm_max_tokens_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"llm_max_tokens must be >= 1, got {v}")
+        return v
+
+    @field_validator("llm_context_max_chars")
+    @classmethod
+    def _llm_context_max_chars_minimum(cls, v: int) -> int:
+        if v < 100:
+            raise ValueError(f"llm_context_max_chars must be >= 100, got {v}")
+        return v
 
 
 def get_settings() -> Settings:
