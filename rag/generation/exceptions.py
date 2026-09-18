@@ -30,5 +30,5 @@ class ModelGenerationError(GenerationError):
     """The LLM failed during answer generation."""
 
 
-class GenerationConfigError(GenerationError):
+class GenerationConfigError(GenerationError, ValueError):
     """The generation configuration is invalid."""

@@ -68,8 +68,21 @@ def build_context(
             "retrieval context is empty — cannot generate an answer "
             "without supporting context"
         )
-    if max_chars < 100:
-        raise InvalidContextError(f"max_chars must be >= 100, got {max_chars}")
+    for idx, item in enumerate(results):
+        if not isinstance(item, VectorSearchResult):
+            raise InvalidContextError(
+                f"All context items must be VectorSearchResult instances, "
+                f"got {type(item).__name__} at index {idx}"
+            )
+    if all(not r.content or not r.content.strip() for r in results):
+        raise InvalidContextError(
+            "retrieval context contains no text content — cannot generate an answer "
+            "without supporting context"
+        )
+    if not isinstance(max_chars, int) or isinstance(max_chars, bool) or max_chars < 100:
+        raise InvalidContextError(
+            f"max_chars must be an integer >= 100, got {max_chars}"
+        )
 
     # ------------------------------------------------------------------
     # Format and accumulate chunks
@@ -128,7 +141,10 @@ def _format_chunk(result: VectorSearchResult, position: int) -> str:
     header_parts = [f"[Chunk {position}]"]
     header_parts.append(f"Document: {result.document_name}")
 
-    page = result.metadata.get("page_number") or result.metadata.get("page")
+    meta = result.metadata or {}
+    page = meta.get("page_number")
+    if page is None:
+        page = meta.get("page")
     if page is not None:
         header_parts.append(f"Page: {page}")
 

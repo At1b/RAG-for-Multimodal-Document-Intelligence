@@ -101,7 +101,13 @@ ollama pull tinyllama
 
 Ollama runs on `http://localhost:11434` by default. You can change this in your `.env` file via `LLM_BASE_URL`.
 
-To use a different model, update `LLM_MODEL` in `.env` (e.g. `LLM_MODEL=llama3`).
+Configurable parameters in `.env`:
+- `LLM_MODEL` (default: `tinyllama`)
+- `LLM_BASE_URL` (default: `http://localhost:11434`)
+- `LLM_TEMPERATURE` (default: `0.1`)
+- `LLM_MAX_TOKENS` (default: `512`)
+- `LLM_TIMEOUT` (default: `120.0`)
+- `LLM_CONTEXT_MAX_CHARS` (default: `3000`)
 
 ### Frontend Setup
 

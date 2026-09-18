@@ -258,41 +258,47 @@ Status: **COMPLETED**
     - Treat context as reference data, NOT instructions
     - Ignore embedded override attempts
   - User message: labeled CONTEXT section + QUESTION section
+  - Hardened Rules 4 & 5: treats context strictly as untrusted reference data; system instructions take absolute priority over any embedded prompts or override attempts
   - No hard-coded answers anywhere in prompts
 - **Question validation**:
   - Empty string → `InvalidQuestionError`
   - Whitespace-only → `InvalidQuestionError`
   - Non-string types → `InvalidQuestionError`
+  - `MAX_QUESTION_LENGTH = 10_000` chars enforced
   - Null bytes / BOM / zero-width spaces stripped from valid questions
-- **Empty context enforcement**:
+  - Multilingual Unicode questions fully supported
+- **Context builder hardening**:
   - Empty retrieval context raises `InvalidContextError` before any LLM call
-  - Verified with `mock_client.chat.assert_not_called()` in tests
+  - All items verified as `VectorSearchResult` instances; non-conforming items raise `InvalidContextError` (no raw `AttributeError`)
+  - All-empty or whitespace chunk content rejected with `InvalidContextError`
+  - `page_number = 0` explicitly preserved (fixed truthiness check)
+  - Truncation preserves earlier complete chunks rather than slicing; omitted chunks logged with warning
 - **Exception hierarchy**: `rag/generation/exceptions.py`
   - `GenerationError` (base)
   - `InvalidQuestionError` — invalid user question
   - `InvalidContextError` — empty/invalid context (LLM must NOT be called)
   - `ModelInitializationError` — Ollama unavailable or package not installed
-  - `ModelGenerationError` — LLM failure or empty response
-  - `GenerationConfigError` — invalid generation configuration
-  - Follows same pattern as `rag/ingestion/exceptions.py` and `rag/retrieval/exceptions.py`
+  - `ModelGenerationError` — LLM failure, timeout, connection failure, or empty/malformed response (causes chained via `from exc`)
+  - `GenerationConfigError(GenerationError, ValueError)` — invalid generation configuration (dual inheritance for backwards compatibility)
 - **Generator independence**: Generator does NOT call Retriever; receives context as parameter
 - **Configuration added & validated** (backend/config.py):
   - `LLM_MODEL=tinyllama` (non-empty string validation)
-  - `LLM_BASE_URL=http://localhost:11434` (HTTP/HTTPS scheme validation)
+  - `LLM_BASE_URL=http://localhost:11434` (HTTP/HTTPS scheme + host netloc validation via `urlparse`)
   - `LLM_TEMPERATURE=0.1` (0.0–2.0 range validation)
-  - `LLM_MAX_TOKENS=512` (>= 1 validation)
-  - `LLM_CONTEXT_MAX_CHARS=3000` (>= 100 validation)
+  - `LLM_MAX_TOKENS=512` (1–32768 range validation)
+  - `LLM_TIMEOUT=120.0` (0–600s range validation, alias `LLM_TIMEOUT_SECONDS`)
+  - `LLM_CONTEXT_MAX_CHARS=3000` (100–500000 range validation, alias `LLM_CONTEXT_CHAR_LIMIT`)
 - **Ollama runtime verification**:
+  - Ollama runtime (v0.34.2) verified running on local Windows environment
+  - `tinyllama:latest` (1.1B parameters, 637 MB) verified installed and ready
   - Ollama Python SDK 0.6.2 installed and verified
-  - `Client(host=...)` constructor verified
-  - `client.chat(model, messages, options)` API verified
-  - `options.temperature` and `options.num_predict` confirmed as correct parameter names
-  - Response format `response["message"]["content"]` confirmed
-  - TinyLlama: 1.1B parameters, ~638 MB download, 2K context window
-- **Ollama setup documented in README.md**: install, serve, pull instructions
+  - `Client(host=..., timeout=...)` constructor verified
+  - `client.chat(model, messages, options)` API verified with dict and object response parsing
+  - Real generation smoke test executed against local Ollama runtime and passed
+- **Ollama setup documented in README.md**: install, serve, pull instructions, and environment variables
 - **Dependencies added**: `ollama>=0.4.0`
-- **Security**: No API keys required (local LLM); no secrets in configuration
-- **436 total tests passing** (53 Phase 5 tests + 383 Phase 0–4):
+- **Security**: Prompt injection attempts in retrieved context strictly contained in user context; no API keys required (local LLM); no secrets in configuration
+- **467 total tests passing** (84 Phase 5 tests + 383 Phase 0–4):
   - 3 interface tests (ABC contract, subclass, method existence)
   - 10 prompt builder tests (question/context inclusion, system/user roles, grounding instructions, no hardcoded answers, override prevention, context/question labels, insufficient context instruction)
   - 12 context builder tests (content, document name, page number, chunk ID, multiple docs, empty/none results, ordering, context limit truncation, first chunk kept, max_chars minimum)
@@ -300,6 +306,14 @@ Status: **COMPLETED**
   - 2 integration tests (full pipeline mock, empty context blocks generation)
   - 3 exception hierarchy tests (inheritance, base class, chaining)
   - 8 configuration tests (defaults, custom values, invalid base_url/empty base_url/temperature/negative temp/max_tokens/context_max_chars/empty model)
+  - 3 prompt injection security tests (system override attempt, persona hijacking, grounding preservation)
+  - 4 timeout & connection handling tests (configured timeout, invalid timeout, timeout wrapping with cause, connection refused with cause)
+  - 6 malformed response tests (missing message, non-dict message, missing content, non-string content, whitespace content, ChatResponse object support)
+  - 5 context builder hardening tests (non-VectorSearchResult items, all-empty chunks, page 0 preservation, multi-chunk truncation logging, long context bounding)
+  - 4 question validation hardening tests (max length, Unicode multilingual, BOM/zero-width space sanitization, only zero-width space rejection)
+  - 6 extended configuration tests (llm_timeout setting, timeout bounds, context limit alias, missing host URL rejection, generator base URL validation, config error hierarchy)
+  - 2 generator independence tests (no retriever/vectorstore coupling, custom generator implementation)
+  - 1 real Ollama generation smoke test (live TinyLlama generation against local server)
 - Ruff lint and format checks pass (100% clean, 54 files formatted)
 
 ---
@@ -389,6 +403,12 @@ Status: **COMPLETED**
 | HTTP/HTTPS URL validation for LLM_BASE_URL | Prevents invalid protocols; validated at Settings level |
 | GenerationResult model | Pydantic model with answer, model_name, metadata; no citation info (Phase 7) |
 | No API endpoint in Phase 5 | Generation is an internal service; API integration deferred to Phase 6 |
+| GenerationConfigError(GenerationError, ValueError) | Dual inheritance allows catching as ValueError for backward compatibility and GenerationError in pipeline |
+| LLM_TIMEOUT = 120.0 default | Configurable timeout passed to Ollama Client, ensuring CPU inference doesn't prematurely fail |
+| urlparse netloc validation for base URL | Prevents incomplete URLs like `http://` missing host from passing validation |
+| MAX_QUESTION_LENGTH = 10,000 chars | Prevents excessive prompt construction compute; matches Phase 4 MAX_QUERY_LENGTH |
+| Explicit page None check in context builder | `page is None` check preserves `page_number = 0` avoiding Python truthiness falsy drop |
+| Strict VectorSearchResult item validation | Prevents raw AttributeError on malformed context input; maps cleanly to InvalidContextError |
 
 ---
 

@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 from rag.generation.base import Generator
 from rag.generation.context_builder import build_context
 from rag.generation.exceptions import (
+    GenerationConfigError,
     InvalidQuestionError,
     ModelGenerationError,
     ModelInitializationError,
@@ -29,6 +31,9 @@ from rag.generation.prompt import build_prompt
 from rag.vectorstore.models import VectorSearchResult
 
 logger = logging.getLogger(__name__)
+
+# Maximum allowed question length in characters.
+MAX_QUESTION_LENGTH = 10_000
 
 
 class OllamaGenerator(Generator):
@@ -41,6 +46,7 @@ class OllamaGenerator(Generator):
         max_tokens: Maximum number of tokens to generate.
         context_max_chars: Maximum character length for the formatted
             context passed to the LLM.
+        timeout: Request timeout in seconds (must be > 0 and <= 600).
     """
 
     def __init__(
@@ -50,15 +56,24 @@ class OllamaGenerator(Generator):
         temperature: float = 0.1,
         max_tokens: int = 512,
         context_max_chars: int = 3000,
+        timeout: float = 120.0,
     ) -> None:
         if not isinstance(model, str) or not model.strip():
-            raise ValueError("model must be a non-empty string")
+            raise GenerationConfigError("model must be a non-empty string")
         if not isinstance(base_url, str) or not base_url.strip():
-            raise ValueError("base_url must be a non-empty string")
+            raise GenerationConfigError("base_url must be a non-empty string")
+
+        parsed_url = urlparse(base_url.strip())
+        if parsed_url.scheme.lower() not in ("http", "https") or not parsed_url.netloc:
+            raise GenerationConfigError(
+                "base_url must be a valid HTTP or HTTPS URL with a host, "
+                f"got '{base_url}'"
+            )
+
         if not isinstance(temperature, (int, float)) or isinstance(temperature, bool):
-            raise ValueError("temperature must be a number")
+            raise GenerationConfigError("temperature must be a number")
         if temperature < 0.0 or temperature > 2.0:
-            raise ValueError(
+            raise GenerationConfigError(
                 f"temperature must be between 0.0 and 2.0, got {temperature}"
             )
         if (
@@ -66,14 +81,23 @@ class OllamaGenerator(Generator):
             or isinstance(max_tokens, bool)
             or max_tokens < 1
         ):
-            raise ValueError(f"max_tokens must be >= 1, got {max_tokens}")
+            raise GenerationConfigError(f"max_tokens must be >= 1, got {max_tokens}")
         if (
             not isinstance(context_max_chars, int)
             or isinstance(context_max_chars, bool)
             or context_max_chars < 100
         ):
-            raise ValueError(
+            raise GenerationConfigError(
                 f"context_max_chars must be >= 100, got {context_max_chars}"
+            )
+        if (
+            not isinstance(timeout, (int, float))
+            or isinstance(timeout, bool)
+            or timeout <= 0.0
+            or timeout > 600.0
+        ):
+            raise GenerationConfigError(
+                f"timeout must be a positive number <= 600, got {timeout}"
             )
 
         self._model = model.strip()
@@ -81,6 +105,7 @@ class OllamaGenerator(Generator):
         self._temperature = float(temperature)
         self._max_tokens = max_tokens
         self._context_max_chars = context_max_chars
+        self._timeout = float(timeout)
         self._client: Any | None = None
 
     # ------------------------------------------------------------------
@@ -136,6 +161,7 @@ class OllamaGenerator(Generator):
                 "temperature": self._temperature,
                 "max_tokens": self._max_tokens,
                 "base_url": self._base_url,
+                "timeout": self._timeout,
             },
         )
 
@@ -162,6 +188,10 @@ class OllamaGenerator(Generator):
         )
         if not cleaned:
             raise InvalidQuestionError("question must be a non-empty string")
+        if len(cleaned) > MAX_QUESTION_LENGTH:
+            raise InvalidQuestionError(
+                f"question exceeds maximum length of {MAX_QUESTION_LENGTH} characters"
+            )
 
     def _get_client(self) -> Any:
         """Lazily initialize and return the Ollama client.
@@ -176,7 +206,10 @@ class OllamaGenerator(Generator):
         try:
             import ollama as ollama_sdk
 
-            self._client = ollama_sdk.Client(host=self._base_url)
+            self._client = ollama_sdk.Client(
+                host=self._base_url,
+                timeout=self._timeout,
+            )
         except ImportError as exc:
             raise ModelInitializationError(
                 "The 'ollama' Python package is required but not installed. "
@@ -217,8 +250,11 @@ class OllamaGenerator(Generator):
 
         # Extract the answer text from the response.
         try:
-            answer = response["message"]["content"]
-        except (KeyError, TypeError) as exc:
+            if hasattr(response, "message") and hasattr(response.message, "content"):
+                answer = response.message.content
+            else:
+                answer = response["message"]["content"]
+        except (KeyError, TypeError, AttributeError) as exc:
             raise ModelGenerationError(
                 f"Unexpected Ollama response format: {exc}"
             ) from exc

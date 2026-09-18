@@ -1,9 +1,9 @@
 """Application configuration loaded from environment variables."""
 
-import re
 from typing import Self
+from urllib.parse import urlparse
 
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -34,7 +34,16 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:11434"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 512
-    llm_context_max_chars: int = 3000
+    llm_timeout: float = Field(
+        default=120.0,
+        validation_alias=AliasChoices("llm_timeout", "llm_timeout_seconds"),
+    )
+    llm_context_max_chars: int = Field(
+        default=3000,
+        validation_alias=AliasChoices(
+            "llm_context_max_chars", "llm_context_char_limit"
+        ),
+    )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
@@ -133,9 +142,11 @@ class Settings(BaseSettings):
         if not v or not v.strip():
             raise ValueError("llm_base_url must be a non-empty string")
         stripped = v.strip()
-        if not re.match(r"^https?://", stripped, re.IGNORECASE):
+        parsed = urlparse(stripped)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
             raise ValueError(
-                f"llm_base_url must be a valid HTTP or HTTPS URL, got '{stripped}'"
+                "llm_base_url must be a valid HTTP or HTTPS URL with a host, "
+                f"got '{stripped}'"
             )
         return stripped
 
@@ -151,6 +162,15 @@ class Settings(BaseSettings):
     def _llm_max_tokens_positive(cls, v: int) -> int:
         if v < 1:
             raise ValueError(f"llm_max_tokens must be >= 1, got {v}")
+        if v > 32768:
+            raise ValueError(f"llm_max_tokens must be <= 32768, got {v}")
+        return v
+
+    @field_validator("llm_timeout")
+    @classmethod
+    def _llm_timeout_range(cls, v: float) -> float:
+        if v <= 0.0 or v > 600.0:
+            raise ValueError(f"llm_timeout must be between 0 and 600 seconds, got {v}")
         return v
 
     @field_validator("llm_context_max_chars")
@@ -158,6 +178,8 @@ class Settings(BaseSettings):
     def _llm_context_max_chars_minimum(cls, v: int) -> int:
         if v < 100:
             raise ValueError(f"llm_context_max_chars must be >= 100, got {v}")
+        if v > 500_000:
+            raise ValueError(f"llm_context_max_chars must be <= 500000, got {v}")
         return v
 
 
