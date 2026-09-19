@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 5 — LLM Generation**
+**Phase 6 — End-to-End Baseline RAG**
 
-Status: **COMPLETED**
+Status: **IN_PROGRESS** (Part A completed, Part B remaining)
 
 ---
 
@@ -316,6 +316,41 @@ Status: **COMPLETED**
   - 1 real Ollama generation smoke test (live TinyLlama generation against local server)
 - Ruff lint and format checks pass (100% clean, 54 files formatted)
 
+### Phase 6A — Core RAG Orchestration (Part A)
+
+- **Status**: Completed
+- **Orchestration package**: `rag/orchestration/` — new application-level service layer
+- **Document indexing service**: `DocumentIndexingService` in `rag/orchestration/indexing_service.py`
+  - Orchestrates: `IngestionService.ingest()` → `chunk_document()` → `IndexingService.index_chunks()`
+  - Constructor-injected dependencies: `IngestionService`, `ChunkingConfig`, `IndexingService`
+  - Method: `index_document(file_path, document_name=None)` → `IndexingResult`
+  - `IndexingResult` model: document_id, document_name, num_pages, num_chunks
+  - Error handling: all pipeline failures wrapped in `DocumentIndexingError` with cause preserved
+  - Zero chunks after chunking raises `DocumentIndexingError`
+  - No duplicated processing — delegates entirely to existing Phase 1–3 abstractions
+- **RAG query service**: `RAGQueryService` in `rag/orchestration/query_service.py`
+  - Orchestrates: `Retriever.retrieve()` → `Generator.generate()` → `QueryResult`
+  - Constructor-injected dependencies: `Retriever` (abstract), `Generator` (abstract)
+  - Method: `query(question, top_k=None)` → `QueryResult`
+  - `QueryResult` model: answer, model_name, num_chunks_retrieved, metadata
+  - Empty retrieval → `EmptyRetrievalError` (LLM is NOT called)
+  - Invalid question errors pass through directly from retriever
+  - Retrieval/generation failures wrapped in `QueryError` with cause preserved
+  - Independent of FastAPI / HTTP request-response objects
+- **Exception hierarchy**: `rag/orchestration/exceptions.py`
+  - `OrchestrationError` (base)
+  - `DocumentIndexingError` — indexing pipeline failure
+  - `QueryError` — query pipeline failure
+  - `EmptyRetrievalError(QueryError)` — no usable retrieval context
+- **No new configuration** — reuses existing settings for chunking, embedding, vector store, LLM
+- **No new dependencies** — uses only existing installed packages
+- **No API endpoints added** — internal service layer only (API deferred to Part B)
+- **513 total tests passing** (46 Phase 6A tests + 467 Phase 0–5):
+  - 18 indexing orchestration unit tests (valid flow, dependency chain, no duplication, name handling, ingestion/chunking/indexing failures, cause preservation, result model, exception hierarchy)
+  - 23 query orchestration unit tests (valid flow, generator called, top_k propagation, empty retrieval, retrieval/generation failures, cause preservation, result propagation, QueryResult model, exception hierarchy)
+  - 5 integration tests (real PDF ingestion+chunking, invalid file, full query flow, empty retrieval blocks generation, multi-document retrieval)
+- Ruff lint and format checks pass (100% clean, 61 files formatted)
+
 ---
 
 ## Technology Stack (Implemented)
@@ -436,7 +471,6 @@ Status: **COMPLETED**
 
 ## Not Started
 
-- End-to-end baseline RAG (Phase 6)
 - Multi-document support and citations (Phase 7)
 - Hybrid retrieval (Phase 8)
 - Reranking (Phase 9)
@@ -450,12 +484,13 @@ Status: **COMPLETED**
 
 ## Next Immediate Tasks
 
-1. Begin Phase 6 — End-to-End Baseline RAG
-2. Integrate ingestion → chunking → embeddings → retrieval → generation
-3. Implement query service
-4. Add end-to-end tests
-5. Test with real sample documents
+1. Complete Phase 6 Part B — API integration
+2. Implement POST /query endpoint using RAGQueryService
+3. Update POST /documents/upload to use DocumentIndexingService
+4. Add end-to-end API tests
+5. Test with real sample documents via API
 6. Record baseline limitations
+7. Mark Phase 6 as COMPLETED
 
 ---
 
