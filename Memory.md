@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 6 — End-to-End Baseline RAG**
+**Phase 7 — Multi-Document Support and Citations**
 
-Status: **IN_PROGRESS** (Part A completed, Part B remaining)
+Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 
 ---
 
@@ -316,40 +316,55 @@ Status: **IN_PROGRESS** (Part A completed, Part B remaining)
   - 1 real Ollama generation smoke test (live TinyLlama generation against local server)
 - Ruff lint and format checks pass (100% clean, 54 files formatted)
 
-### Phase 6A — Core RAG Orchestration (Part A)
+### Phase 6 — End-to-End Baseline RAG (Completed)
 
-- **Status**: Completed
-- **Orchestration package**: `rag/orchestration/` — new application-level service layer
-- **Document indexing service**: `DocumentIndexingService` in `rag/orchestration/indexing_service.py`
-  - Orchestrates: `IngestionService.ingest()` → `chunk_document()` → `IndexingService.index_chunks()`
-  - Constructor-injected dependencies: `IngestionService`, `ChunkingConfig`, `IndexingService`
-  - Method: `index_document(file_path, document_name=None)` → `IndexingResult`
-  - `IndexingResult` model: document_id, document_name, num_pages, num_chunks
-  - Error handling: all pipeline failures wrapped in `DocumentIndexingError` with cause preserved
-  - Zero chunks after chunking raises `DocumentIndexingError`
-  - No duplicated processing — delegates entirely to existing Phase 1–3 abstractions
-- **RAG query service**: `RAGQueryService` in `rag/orchestration/query_service.py`
-  - Orchestrates: `Retriever.retrieve()` → `Generator.generate()` → `QueryResult`
-  - Constructor-injected dependencies: `Retriever` (abstract), `Generator` (abstract)
-  - Method: `query(question, top_k=None)` → `QueryResult`
-  - `QueryResult` model: answer, model_name, num_chunks_retrieved, metadata
-  - Empty retrieval → `EmptyRetrievalError` (LLM is NOT called)
-  - Invalid question errors pass through directly from retriever
-  - Retrieval/generation failures wrapped in `QueryError` with cause preserved
-  - Independent of FastAPI / HTTP request-response objects
-- **Exception hierarchy**: `rag/orchestration/exceptions.py`
-  - `OrchestrationError` (base)
-  - `DocumentIndexingError` — indexing pipeline failure
-  - `QueryError` — query pipeline failure
-  - `EmptyRetrievalError(QueryError)` — no usable retrieval context
-- **No new configuration** — reuses existing settings for chunking, embedding, vector store, LLM
-- **No new dependencies** — uses only existing installed packages
-- **No API endpoints added** — internal service layer only (API deferred to Part B)
-- **513 total tests passing** (46 Phase 6A tests + 467 Phase 0–5):
-  - 18 indexing orchestration unit tests (valid flow, dependency chain, no duplication, name handling, ingestion/chunking/indexing failures, cause preservation, result model, exception hierarchy)
-  - 23 query orchestration unit tests (valid flow, generator called, top_k propagation, empty retrieval, retrieval/generation failures, cause preservation, result propagation, QueryResult model, exception hierarchy)
-  - 5 integration tests (real PDF ingestion+chunking, invalid file, full query flow, empty retrieval blocks generation, multi-document retrieval)
-- Ruff lint and format checks pass (100% clean, 61 files formatted)
+- **Status**: Completed (Parts A & B)
+- **Part A — Core RAG Orchestration**:
+  - Orchestration package: `rag/orchestration/` — application-level service layer
+  - Document indexing service: `DocumentIndexingService` in `rag/orchestration/indexing_service.py`
+    - Orchestrates: `IngestionService.ingest()` → `chunk_document()` → `IndexingService.index_chunks()`
+    - Constructor-injected dependencies: `IngestionService`, `ChunkingConfig`, `IndexingService`
+    - Method: `index_document(file_path, document_name=None)` → `IndexingResult`
+    - `IndexingResult` model: `document_id`, `document_name`, `num_pages`, `num_chunks`
+    - Error handling: all pipeline failures wrapped in `DocumentIndexingError` with cause preserved
+    - Zero chunks after chunking raises `DocumentIndexingError`
+    - No duplicated processing — delegates entirely to existing Phase 1–3 abstractions
+  - RAG query service: `RAGQueryService` in `rag/orchestration/query_service.py`
+    - Orchestrates: `Retriever.retrieve()` → `Generator.generate()` → `QueryResult`
+    - Constructor-injected dependencies: `Retriever` (abstract), `Generator` (abstract)
+    - Method: `query(question, top_k=None)` → `QueryResult`
+    - `QueryResult` model: `answer`, `model_name`, `num_chunks_retrieved`, `metadata`
+    - Empty retrieval → `EmptyRetrievalError` (LLM is NOT called)
+    - Invalid question errors pass through directly from retriever
+    - Retrieval/generation failures wrapped in `QueryError` with cause preserved
+    - Independent of FastAPI / HTTP request-response objects
+  - Exception hierarchy: `rag/orchestration/exceptions.py`
+    - `OrchestrationError` (base)
+    - `DocumentIndexingError` — indexing pipeline failure
+    - `QueryError` — query pipeline failure
+    - `EmptyRetrievalError(QueryError)` — no usable retrieval context
+- **Part B — API Integration & Verification**:
+  - **POST /documents/upload** updated to full indexing:
+    - Delegates to `DocumentIndexingService`
+    - Document is ingested, chunked, embedded, and indexed in ChromaDB in a single operation
+    - Returns `document_id`, `document_name`, `num_pages`, `num_chunks`
+    - `_resolve_indexing_error` helper unwraps `DocumentIndexingError.__cause__` to preserve correct HTTP status codes (`EmptyFileError` → 400, `FileTooLargeError` → 413, `UnsupportedFormatError` → 415, `InvalidDocumentError` → 422, generic → 500)
+  - **POST /query** endpoint implemented in `backend/query.py`:
+    - Thin route handler: delegates to `RAGQueryService`
+    - Accepts `question` (min_length=1) and optional `top_k` (ge=1, le=1000)
+    - `_resolve_query_error` helper unwraps `QueryError.__cause__` to map validation errors to HTTP 400 (`InvalidQueryError`, `InvalidQuestionError` → 400, `EmptyRetrievalError` → 404, generic `QueryError` → 500)
+    - Returns `QueryResponse(answer, model_name, num_chunks_retrieved)`
+  - **Thin route architecture**:
+    - Route handlers only construct service dependencies from settings, call orchestration services, and format responses/errors
+    - No business logic, embedding math, ChromaDB queries, or LLM chat calls inside route handlers
+  - **Real sample document verification**:
+    - Fixture created: `tests/fixtures/sample_ai_overview.pdf` (multi-paragraph AI/RAG/Transformers overview)
+    - Integration tests in `tests/test_sample_document.py` verify full flow: ingestion → multi-chunk creation → embedding → ChromaDB storage → semantic query retrieval → live LLM answer generation
+    - Optional/skip-aware live LLM test against local Ollama runtime (`@pytest.mark.skipif`)
+  - **End-to-end API tests**:
+    - `tests/test_api_e2e.py` covers full API surface: upload PDF/DOCX, rejected file types, empty files, vector store verification, query endpoint validation, 404 on empty store, 500 on LLM failure, custom top_k, and complete baseline multi-doc flow
+- **Total test count: 540 passing tests** (27 Phase 6B tests [15 E2E + 12 sample doc] + 46 Phase 6A + 467 Phase 0–5)
+- **Ruff check & format**: 100% clean across all 65 repository files
 
 ---
 
@@ -444,6 +459,12 @@ Status: **IN_PROGRESS** (Part A completed, Part B remaining)
 | MAX_QUESTION_LENGTH = 10,000 chars | Prevents excessive prompt construction compute; matches Phase 4 MAX_QUERY_LENGTH |
 | Explicit page None check in context builder | `page is None` check preserves `page_number = 0` avoiding Python truthiness falsy drop |
 | Strict VectorSearchResult item validation | Prevents raw AttributeError on malformed context input; maps cleanly to InvalidContextError |
+| Document indexing API integration | POST /documents/upload delegates to DocumentIndexingService; ingests, chunks, embeds, and stores in one step |
+| Query API integration | POST /query delegates to RAGQueryService; retrieves context chunks and generates answer |
+| Error cause unwrapping | _resolve_indexing_error and _resolve_query_error inspect __cause__ to map inner validation errors to 400/413/415/422 without hiding under generic 500 |
+| Thin route handlers | FastAPI routes contain zero RAG business logic; services handle all pipeline operations |
+| Sample document test fixture | tests/fixtures/sample_ai_overview.pdf enables repeatable end-to-end verification of ingestion, chunking, storage, and retrieval |
+| Skip-aware live LLM test | Real Ollama generation tested when server is reachable, gracefully skipped in CI |
 
 ---
 
@@ -455,6 +476,13 @@ Status: **IN_PROGRESS** (Part A completed, Part B remaining)
 
 ## Known Limitations
 
+- Baseline limitations observed in Phase 6:
+  - Single-turn baseline only (no conversation history or chat memory)
+  - Retrieval is semantic-only (no BM25 keyword search or hybrid retrieval yet — deferred to Phase 8)
+  - No cross-encoder reranking of retrieved candidates (deferred to Phase 9)
+  - No source citations or page attribution in API response (only answer text and chunk count; deferred to Phase 7)
+  - Multi-document retrieval occurs across a shared flat vector space without document filtering or provenance grouping
+  - LLM generation relies on local Ollama availability; cold-start or low-spec CPU inference may experience latency
 - Frontend is the default Vite/React template; no MM-RAG-specific UI yet
 - OCR is not implemented (deferred to Phase 10)
 - Scanned PDFs will extract no text (text extraction only, no image-based OCR)
@@ -484,13 +512,11 @@ Status: **IN_PROGRESS** (Part A completed, Part B remaining)
 
 ## Next Immediate Tasks
 
-1. Complete Phase 6 Part B — API integration
-2. Implement POST /query endpoint using RAGQueryService
-3. Update POST /documents/upload to use DocumentIndexingService
-4. Add end-to-end API tests
-5. Test with real sample documents via API
-6. Record baseline limitations
-7. Mark Phase 6 as COMPLETED
+1. Begin Phase 7 — Multi-Document Support and Citations
+2. Support indexing and querying across multiple identified documents
+3. Implement citation formatter (document name, page number, chunk identifier)
+4. Add citation metadata to query API response
+5. Add cross-document and multi-source attribution tests
 
 ---
 

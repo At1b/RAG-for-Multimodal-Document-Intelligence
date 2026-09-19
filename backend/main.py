@@ -8,6 +8,7 @@ from fastapi import FastAPI
 
 from backend.config import get_settings
 from backend.documents import router as documents_router
+from backend.query import router as query_router
 
 settings = get_settings()
 
@@ -18,6 +19,7 @@ app = FastAPI(
 )
 
 app.include_router(documents_router)
+app.include_router(query_router)
 
 
 @app.get("/health")

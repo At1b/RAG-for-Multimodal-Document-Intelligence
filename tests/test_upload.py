@@ -34,7 +34,7 @@ def _make_docx_bytes(text: str = "Test content") -> bytes:
 
 
 def test_upload_pdf_returns_200():
-    """Uploading a valid PDF returns 200 with document metadata."""
+    """Uploading a valid PDF returns 200 with indexing result."""
     pdf_bytes = _make_pdf_bytes("Hello from PDF")
     response = client.post(
         "/documents/upload",
@@ -43,13 +43,13 @@ def test_upload_pdf_returns_200():
     assert response.status_code == 200
     data = response.json()
     assert data["document_name"] == "report.pdf"
-    assert data["source_type"] == "pdf"
-    assert data["total_pages"] >= 1
+    assert data["num_pages"] >= 1
+    assert data["num_chunks"] >= 1
     assert "document_id" in data
 
 
 def test_upload_docx_returns_200():
-    """Uploading a valid DOCX returns 200 with document metadata."""
+    """Uploading a valid DOCX returns 200 with indexing result."""
     docx_bytes = _make_docx_bytes("Hello from DOCX")
     response = client.post(
         "/documents/upload",
@@ -65,7 +65,7 @@ def test_upload_docx_returns_200():
     assert response.status_code == 200
     data = response.json()
     assert data["document_name"] == "document.docx"
-    assert data["source_type"] == "docx"
+    assert data["num_chunks"] >= 1
     assert "document_id" in data
 
 
