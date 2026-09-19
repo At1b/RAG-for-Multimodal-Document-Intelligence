@@ -363,7 +363,7 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
     - Optional/skip-aware live LLM test against local Ollama runtime (`@pytest.mark.skipif`)
   - **End-to-end API tests**:
     - `tests/test_api_e2e.py` covers full API surface: upload PDF/DOCX, rejected file types, empty files, vector store verification, query endpoint validation, 404 on empty store, 500 on LLM failure, custom top_k, and complete baseline multi-doc flow
-- **Total test count: 546 passing tests** (6 diagnostic prompt tests + 27 Phase 6B tests + 46 Phase 6A + 467 Phase 0–5)
+- **Total test count: 552 passing tests** (6 structural regression tests + 6 diagnostic prompt tests + 27 Phase 6B tests + 46 Phase 6A + 467 Phase 0–5)
 - **Ruff check & format**: 100% clean across all 65 repository files
 
 - **Phase 6 Baseline RAG Bug Fix: LLM Prompt Message Handling**:
@@ -383,11 +383,29 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
     - `test_system_instructions_not_duplicated_in_user_message`
     - `test_user_message_question_first_structure`
     - `test_generator_independent_of_retriever`
+
+- **Phase 6 Real Runtime Generation Failure Investigation & Model Transition**:
+  - **Issue**: Manual runtime testing revealed TinyLlama still failed acceptance criteria: intermittently responding with `"Sure! Here's a revised version of the question with the context and instructions included:"` and dumping prompt templates and context blocks, or emitting conversational boilerplate (`"Sure, I can provide..."`) and verbatim chunk duplication. Automated tests had previously masked this by only asserting `len(answer) > 10`.
+  - **Empirical Investigation & Root Cause**:
+    - Detailed inspection confirmed message construction, Ollama JSON payload, role separation, and prompt formatting were 100% correct.
+    - Minimal-prompt testing confirmed TinyLlama still emits conversational boilerplate and echoes context verbatim.
+    - Definitive Root Cause: Factor #6 — TinyLlama-1.1B's instruction-following quality. As an early 1.1B model trained on UltraChat conversational data, it exhibits strong sycophantic preamble bias and confuses question-answering with text revision.
+    - Comparative benchmarking was conducted across `tinyllama:latest` (637 MB), `qwen2.5:0.5b-instruct` (397 MB), and `llama3.2:1b` (1.3 GB).
+    - Under the production prompt, `qwen2.5:0.5b-instruct` immediately produced: `"Machine Learning is a subset of artificial intelligence that focuses on developing algorithms that allow computers to learn from and make predictions based on data."` with zero boilerplate, zero prompt echoing, and exact grounding.
+  - **Resolution**:
+    1. Replaced `tinyllama` with `qwen2.5:0.5b-instruct` as the empirically verified baseline model for the local environment. (Treated strictly as a verified baseline replacement based on local empirical results, not universally superior).
+    2. Maintained single source of truth for the default model via `DEFAULT_MODEL = "qwen2.5:0.5b-instruct"` in `rag/generation/ollama_generator.py`, imported into `backend/config.py` to prevent duplicate defaults.
+    3. Kept `LLM_MODEL` fully configurable via environment variables and `.env`.
+    4. Kept the `Generator` ABC abstraction completely unchanged.
+    5. Documented `tinyllama`'s failure mode in `README.md`, `Memory.md`, and module docstrings.
+  - **Regression Tests Added**:
+    - `TestGenerationStructuralRegression` in `tests/test_generation.py`: guards against conversational preambles (`"Sure, here's a revised version..."`), prompt template echoing (`"QUESTION:"`, `"CONTEXT:"`), chunk header leaks (`"[Chunk N]"`, `"Chunk ID:"`), and system instruction reproduction (`"untrusted reference data"`, `"System instructions"`).
+    - `TestRealOllamaGeneration.test_real_generation_smoke`: dynamically tests `DEFAULT_MODEL` with structural quality assertions.
+    - `tests/test_sample_document.py::TestSampleLLMGeneration`: dynamically uses configured `settings.llm_model` and verifies complete structural output integrity against `sample_ai_overview.pdf`.
   - **Verification**:
-    - 546/546 tests passing (`pytest tests/ -v`).
-    - Ruff lint & format checks 100% clean (`ruff check`, `ruff format --check`).
-    - `git diff --check` passed cleanly.
-    - Live `/query` smoke test with real TinyLlama runtime against `sample_ai_overview.pdf`: HTTP 200 returned with `num_chunks_retrieved: 1` and a grounded explanation of Machine Learning from the document (no grounding rules echoed, no prompt instruction repetition).
+    - 552/552 tests passing (`pytest tests/ -v`).
+    - Ruff lint and formatting checks 100% clean.
+    - Live manual `/query` endpoint test against running FastAPI backend returned HTTP 200 with model `qwen2.5:0.5b-instruct`, 1 chunk retrieved, and clean, concise answer with zero prompt repetition or conversational filler.
 
 ---
 
@@ -406,7 +424,8 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 | Embedding Model | all-MiniLM-L6-v2 | — |
 | Vector Store | ChromaDB | 1.5.x |
 | LLM Runtime | Ollama | — |
-| LLM Model | TinyLlama | 1.1B |
+| LLM Model | Qwen 2.5 Instruct (Baseline) | 0.5B (397 MB) |
+| LLM Model (Configurable) | Configurable via LLM_MODEL | — |
 | LLM SDK | ollama (Python) | 0.6.2 |
 | Frontend | React (Vite) | Vite 8.x |
 | Node.js | Node.js | 24.17.0 |

@@ -35,13 +35,16 @@ SAMPLE_PDF = Path(__file__).parent / "fixtures" / "sample_ai_overview.pdf"
 
 
 def _ollama_available() -> bool:
-    """Check if the Ollama server is reachable."""
+    """Check if the Ollama server is reachable and has the configured model."""
     try:
-        import ollama as ollama_sdk
+        import urllib.request
 
-        client = ollama_sdk.Client(host="http://localhost:11434", timeout=5.0)
-        client.list()
-        return True
+        from backend.config import get_settings
+
+        settings = get_settings()
+        req = urllib.request.urlopen(f"{settings.llm_base_url}/api/tags", timeout=3.0)
+        data = req.read().decode()
+        return settings.llm_model in data
     except Exception:
         return False
 
@@ -247,13 +250,15 @@ class TestSampleLLMGeneration:
 
     @pytest.mark.skipif(
         not _ollama_available(),
-        reason="Ollama server not available — skipping live LLM test",
+        reason="Ollama server with configured model not available — skipping live LLM test",  # noqa: E501
     )
     def test_real_llm_generates_answer(self, indexed_sample):
         """The real LLM generates an answer from the sample document."""
+        from backend.config import get_settings
         from rag.generation.ollama_generator import OllamaGenerator
         from rag.orchestration.query_service import RAGQueryService
 
+        settings = get_settings()
         store = indexed_sample["vector_store"]
         emb_service = indexed_sample["embedding_service"]
 
@@ -263,18 +268,29 @@ class TestSampleLLMGeneration:
             default_top_k=3,
         )
         generator = OllamaGenerator(
-            model="tinyllama",
-            temperature=0.1,
-            max_tokens=256,
-            timeout=120.0,
+            model=settings.llm_model,
+            base_url=settings.llm_base_url,
+            temperature=settings.llm_temperature,
+            max_tokens=settings.llm_max_tokens,
+            timeout=settings.llm_timeout,
         )
         query_service = RAGQueryService(
             retriever=retriever,
             generator=generator,
         )
 
-        result = query_service.query("What is RAG and how does it work?")
+        result = query_service.query("What is Machine Learning?")
         assert result.answer
         assert len(result.answer) > 10
-        assert result.model_name == "tinyllama"
+        assert result.model_name == settings.llm_model
         assert result.num_chunks_retrieved >= 1
+
+        # Structural regression assertions: verify output does not echo
+        # prompt or boilerplate.
+        answer = result.answer
+        assert not answer.lower().startswith("sure")
+        assert "QUESTION:" not in answer
+        assert "CONTEXT:" not in answer
+        assert "Chunk ID:" not in answer
+        assert "System instructions" not in answer
+        assert "untrusted reference data" not in answer

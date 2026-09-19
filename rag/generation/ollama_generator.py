@@ -32,6 +32,10 @@ from rag.vectorstore.models import VectorSearchResult
 
 logger = logging.getLogger(__name__)
 
+# Default model empirically verified for local RAG baseline instruction-following.
+# Replaces tinyllama which failed Phase 6 acceptance tests by echoing prompt templates.
+DEFAULT_MODEL = "qwen2.5:0.5b-instruct"
+
 # Maximum allowed question length in characters.
 MAX_QUESTION_LENGTH = 10_000
 
@@ -40,7 +44,7 @@ class OllamaGenerator(Generator):
     """Generate answers using an Ollama-hosted LLM.
 
     Args:
-        model: Ollama model name (e.g. ``"tinyllama"``).
+        model: Ollama model name (defaults to ``DEFAULT_MODEL``).
         base_url: Ollama server URL (e.g. ``"http://localhost:11434"``).
         temperature: Sampling temperature (0.0–2.0).
         max_tokens: Maximum number of tokens to generate.
@@ -51,7 +55,7 @@ class OllamaGenerator(Generator):
 
     def __init__(
         self,
-        model: str = "tinyllama",
+        model: str = DEFAULT_MODEL,
         base_url: str = "http://localhost:11434",
         temperature: float = 0.1,
         max_tokens: int = 512,

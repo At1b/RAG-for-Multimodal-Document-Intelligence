@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
+from rag.generation.ollama_generator import DEFAULT_MODEL
+
 
 class Settings(BaseSettings):
     """MM-RAG application settings.
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
     vector_search_top_k: int = 10
 
     # Phase 5: LLM Generation
-    llm_model: str = "tinyllama"
+    llm_model: str = DEFAULT_MODEL
     llm_base_url: str = "http://localhost:11434"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 512

@@ -95,14 +95,14 @@ The generation layer uses [Ollama](https://ollama.com) to run a local LLM. No AP
 # 2. Start the Ollama server
 ollama serve
 
-# 3. Pull the default model (~638 MB)
-ollama pull tinyllama
+# 3. Pull the verified baseline model (~397 MB)
+ollama pull qwen2.5:0.5b-instruct
 ```
 
 Ollama runs on `http://localhost:11434` by default. You can change this in your `.env` file via `LLM_BASE_URL`.
 
 Configurable parameters in `.env`:
-- `LLM_MODEL` (default: `tinyllama`)
+- `LLM_MODEL` (default: `qwen2.5:0.5b-instruct`; note: `tinyllama` failed Phase 6 runtime acceptance due to prompt-echoing limitations)
 - `LLM_BASE_URL` (default: `http://localhost:11434`)
 - `LLM_TEMPERATURE` (default: `0.1`)
 - `LLM_MAX_TOKENS` (default: `512`)
