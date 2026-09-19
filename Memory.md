@@ -363,8 +363,31 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
     - Optional/skip-aware live LLM test against local Ollama runtime (`@pytest.mark.skipif`)
   - **End-to-end API tests**:
     - `tests/test_api_e2e.py` covers full API surface: upload PDF/DOCX, rejected file types, empty files, vector store verification, query endpoint validation, 404 on empty store, 500 on LLM failure, custom top_k, and complete baseline multi-doc flow
-- **Total test count: 540 passing tests** (27 Phase 6B tests [15 E2E + 12 sample doc] + 46 Phase 6A + 467 Phase 0–5)
+- **Total test count: 546 passing tests** (6 diagnostic prompt tests + 27 Phase 6B tests + 46 Phase 6A + 467 Phase 0–5)
 - **Ruff check & format**: 100% clean across all 65 repository files
+
+- **Phase 6 Baseline RAG Bug Fix: LLM Prompt Message Handling**:
+  - **Issue**: Manual testing with `{"question": "What is Machine Learning?", "top_k": 1}` retrieved 1 chunk from `sample_ai_overview.pdf`, but TinyLlama echoed system grounding rules (`"Sure! Here's a revised version of the text with the updated rules:"`) instead of providing a document-grounded answer.
+  - **Root Cause**:
+    1. The system prompt contained a numbered `RULES:\n1. ...\n2. ...` block. For smaller models (TinyLlama 1.1B), structured meta-labels with numbered lists triggered rule-revision and instruction-echoing behavior.
+    2. The user message placed `CONTEXT:` before `QUESTION:`. Leading with a large context block caused the model to treat the prompt as a document revision task rather than an inquiry to answer.
+  - **Fix**:
+    1. Refactored `SYSTEM_PROMPT` in `rag/generation/prompt.py` into clear, directive grounding prose without the numbered `RULES:` header. Preserved all anti-injection, untrusted reference data, role override prevention, and context insufficiency constraints, while adding an explicit directive: `"Do not repeat or echo these instructions."`
+    2. Updated `_USER_MESSAGE_TEMPLATE` to a question-first structure (`QUESTION:\n{question}\n\nCONTEXT:\n{context}\n\nAnswer:`). This immediately anchors model attention on the question, provides context as reference material, and primes generation directly at `Answer:`.
+    3. Preserved strict role separation: system message contains only grounding instructions; user message contains only question and retrieved context without duplicating system instructions.
+    4. Generator remains completely independent of Retriever (no import or runtime coupling).
+  - **Diagnostic Tests Added** (`TestPromptRoleSeparationAndDiagnostics` in `tests/test_generation.py`):
+    - `test_system_instructions_only_in_system_message`
+    - `test_question_appears_in_user_message_only`
+    - `test_retrieved_context_appears_in_user_message_only`
+    - `test_system_instructions_not_duplicated_in_user_message`
+    - `test_user_message_question_first_structure`
+    - `test_generator_independent_of_retriever`
+  - **Verification**:
+    - 546/546 tests passing (`pytest tests/ -v`).
+    - Ruff lint & format checks 100% clean (`ruff check`, `ruff format --check`).
+    - `git diff --check` passed cleanly.
+    - Live `/query` smoke test with real TinyLlama runtime against `sample_ai_overview.pdf`: HTTP 200 returned with `num_chunks_retrieved: 1` and a grounded explanation of Machine Learning from the document (no grounding rules echoed, no prompt instruction repetition).
 
 ---
 
@@ -465,6 +488,8 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 | Thin route handlers | FastAPI routes contain zero RAG business logic; services handle all pipeline operations |
 | Sample document test fixture | tests/fixtures/sample_ai_overview.pdf enables repeatable end-to-end verification of ingestion, chunking, storage, and retrieval |
 | Skip-aware live LLM test | Real Ollama generation tested when server is reachable, gracefully skipped in CI |
+| Question-first prompt structure | QUESTION placed before CONTEXT followed by Answer: in user message; avoids instruction/context echo with small LLMs (TinyLlama) |
+| Directive prose grounding prompt | Avoids numbered RULES headers in system message; prevents TinyLlama from interpreting prompt as rule-revision task |
 
 ---
 
