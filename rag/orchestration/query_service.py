@@ -29,7 +29,10 @@ from pydantic import BaseModel, Field
 
 from rag.generation.base import Generator
 from rag.generation.exceptions import InvalidQuestionError
-from rag.orchestration.exceptions import EmptyRetrievalError, QueryError
+from rag.orchestration.exceptions import (
+    InsufficientContextError,
+    QueryError,
+)
 from rag.retrieval.base import Retriever
 
 logger = logging.getLogger(__name__)
@@ -68,15 +71,30 @@ class RAGQueryService:
     Args:
         retriever: Phase 4 retriever (abstract interface).
         generator: Phase 5 LLM generator (abstract interface).
+        min_score: Optional defensive minimum similarity score threshold.
+            SemanticRetriever owns primary score filtering; this threshold
+            serves as an additional defensive safeguard.
     """
 
     def __init__(
         self,
         retriever: Retriever,
         generator: Generator,
+        min_score: float | None = None,
     ) -> None:
+        if min_score is not None:
+            if not isinstance(min_score, (int, float)) or isinstance(min_score, bool):
+                raise ValueError(
+                    f"min_score must be a float or int, got {type(min_score).__name__}"
+                )
+            if min_score < -1.0 or min_score > 1.0:
+                raise ValueError(
+                    f"min_score must be between -1.0 and 1.0, got {min_score}"
+                )
+
         self._retriever = retriever
         self._generator = generator
+        self._min_score = float(min_score) if min_score is not None else None
 
     def query(
         self,
@@ -96,8 +114,10 @@ class RAGQueryService:
         Raises:
             InvalidQuestionError: If the question is invalid
                 (empty, whitespace-only, wrong type).
-            EmptyRetrievalError: If retrieval returns no usable context.
+            InsufficientContextError: If retrieval returns no usable context
+                or all retrieved results fall below the relevance threshold.
                 The LLM is NOT called in this case.
+            EmptyRetrievalError: Base class of InsufficientContextError.
             QueryError: If retrieval or generation fails.
                 The underlying cause is always preserved.
         """
@@ -111,11 +131,16 @@ class RAGQueryService:
         except Exception as exc:
             raise QueryError(f"Retrieval failed for question: {exc}") from exc
 
-        # Step 2: Validate retrieval produced usable context.
+        # Step 2: Defensive relevance filtering (SemanticRetriever owns
+        # primary filtering).
+        if self._min_score is not None:
+            results = [r for r in results if r.score >= self._min_score]
+
+        # Step 3: Validate retrieval produced usable context.
         if not results:
-            raise EmptyRetrievalError(
-                "Retrieval returned no results — cannot generate an "
-                "answer without supporting context."
+            raise InsufficientContextError(
+                "Retrieval returned no results or usable context for the "
+                "question - cannot generate an answer without supporting context."
             )
 
         logger.info(

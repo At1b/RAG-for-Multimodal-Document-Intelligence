@@ -31,6 +31,15 @@ class Settings(BaseSettings):
     vector_store_collection: str = "mmrag_chunks"
     vector_search_top_k: int = 10
 
+    # Phase 4 / Phase 6: Semantic Retrieval & Relevance Gate
+    # Empirically chosen Phase 6 baseline heuristic (all-MiniLM-L6-v2 on sample doc).
+    # Measured unrelated queries scored <= 0.143; relevant queries scored >= 0.424.
+    # 0.30 provides a balanced separation buffer. Must be reevaluated in Phase 11.
+    retrieval_min_score: float = Field(
+        default=0.3,
+        validation_alias=AliasChoices("retrieval_min_score", "RETRIEVAL_MIN_SCORE"),
+    )
+
     # Phase 5: LLM Generation
     llm_model: str = DEFAULT_MODEL
     llm_base_url: str = "http://localhost:11434"
@@ -116,6 +125,24 @@ class Settings(BaseSettings):
         if v > 1000:
             raise ValueError(f"vector_search_top_k must be <= 1000, got {v}")
         return v
+
+    @field_validator("retrieval_min_score", mode="before")
+    @classmethod
+    def _retrieval_min_score_range(cls, v: float) -> float:
+        if isinstance(v, bool):
+            raise ValueError("retrieval_min_score must be a float, got bool")
+        if not isinstance(v, (int, float)):
+            try:
+                v = float(v)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"retrieval_min_score must be a float, got {type(v).__name__}"
+                ) from exc
+        if v < -1.0 or v > 1.0:
+            raise ValueError(
+                f"retrieval_min_score must be between -1.0 and 1.0, got {v}"
+            )
+        return float(v)
 
     @model_validator(mode="after")
     def _validate_chunk_overlap(self) -> Self:

@@ -33,3 +33,13 @@ class EmptyRetrievalError(QueryError):
     The LLM must NOT be called when this error is raised.
     No fallback answers should be fabricated.
     """
+
+
+class InsufficientContextError(EmptyRetrievalError):
+    """Retrieved context is insufficient or below the relevance threshold.
+
+    Subclasses ``EmptyRetrievalError`` to maintain backward compatibility
+    with callers catching ``EmptyRetrievalError``.
+    The LLM must NOT be called when this error is raised.
+    No fallback answers should be fabricated.
+    """

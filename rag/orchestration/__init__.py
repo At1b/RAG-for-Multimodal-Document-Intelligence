@@ -17,6 +17,7 @@ Public API:
 from rag.orchestration.exceptions import (
     DocumentIndexingError,
     EmptyRetrievalError,
+    InsufficientContextError,
     OrchestrationError,
     QueryError,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "DocumentIndexingService",
     "EmptyRetrievalError",
     "IndexingResult",
+    "InsufficientContextError",
     "OrchestrationError",
     "QueryError",
     "QueryResult",

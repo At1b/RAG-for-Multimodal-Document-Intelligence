@@ -342,6 +342,36 @@ class TestQueryEndpoint:
         data = response.json()
         assert data["num_chunks_retrieved"] >= 1
 
+    def test_unrelated_query_rejected_by_relevance_gate_returns_404(self, test_env):
+        """Unrelated query below the relevance gate returns HTTP 404
+        and does not call LLM.
+        """
+        client, _, mock_gen = test_env
+
+        # Index an AI/ML document
+        pdf_bytes = _make_pdf_bytes(
+            "Machine Learning is a subset of artificial intelligence that focuses "
+            "on developing algorithms that learn from data."
+        )
+        upload_resp = client.post(
+            "/documents/upload",
+            files={"file": ("ai_overview.pdf", pdf_bytes, "application/pdf")},
+        )
+        assert upload_resp.status_code == 200
+
+        # Reset mock generator call history
+        mock_gen.generate.reset_mock()
+
+        # Query an entirely unrelated question
+        response = client.post(
+            "/query",
+            json={"question": "What is the capital of France?", "top_k": 3},
+        )
+        assert response.status_code == 404
+        assert "no results or usable context" in response.json()["detail"].lower()
+        # The LLM generator MUST NOT have been called
+        mock_gen.generate.assert_not_called()
+
 
 # ===========================================================================
 # Complete baseline flow test
@@ -412,7 +442,12 @@ class TestCompleteBaselineFlow:
         # Query should retrieve from both documents.
         response = client.post(
             "/query",
-            json={"question": "What is the relationship between ML and DL?"},
+            json={
+                "question": (
+                    "What is the relationship between machine learning "
+                    "and deep learning?"
+                )
+            },
         )
         assert response.status_code == 200
         assert response.json()["answer"]

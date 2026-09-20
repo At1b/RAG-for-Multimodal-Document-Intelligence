@@ -96,6 +96,7 @@ async def query(request: QueryRequest):
         embedding_service=embedding_service,
         vector_store=vector_store,
         default_top_k=settings.vector_search_top_k,
+        min_score=settings.retrieval_min_score,
     )
     generator = OllamaGenerator(
         model=settings.llm_model,
@@ -109,6 +110,7 @@ async def query(request: QueryRequest):
     query_service = RAGQueryService(
         retriever=retriever,
         generator=generator,
+        min_score=settings.retrieval_min_score,
     )
 
     try:

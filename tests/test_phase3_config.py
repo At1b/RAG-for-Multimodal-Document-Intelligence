@@ -18,6 +18,7 @@ class TestPhase3ConfigDefaults:
         assert s.vector_store_path == "data/vectorstore"
         assert s.vector_store_collection == "mmrag_chunks"
         assert s.vector_search_top_k == 10
+        assert s.retrieval_min_score == 0.3
 
     def test_custom_phase3_settings(self):
         s = Settings(
@@ -26,12 +27,14 @@ class TestPhase3ConfigDefaults:
             vector_store_path="custom/path",
             vector_store_collection="custom_collection",
             vector_search_top_k=20,
+            retrieval_min_score=0.45,
         )
         assert s.embedding_model == "custom-model"
         assert s.embedding_batch_size == 32
         assert s.vector_store_path == "custom/path"
         assert s.vector_store_collection == "custom_collection"
         assert s.vector_search_top_k == 20
+        assert s.retrieval_min_score == 0.45
 
 
 class TestEmbeddingModelValidation:
@@ -124,3 +127,39 @@ class TestVectorSearchTopKValidation:
     def test_at_max_top_k_valid(self):
         s = Settings(vector_search_top_k=1000)
         assert s.vector_search_top_k == 1000
+
+
+class TestRetrievalMinScoreValidation:
+    """Verify validation on retrieval_min_score."""
+
+    def test_default_min_score(self):
+        s = Settings()
+        assert s.retrieval_min_score == 0.3
+
+    def test_valid_min_score_float(self):
+        s = Settings(retrieval_min_score=0.75)
+        assert s.retrieval_min_score == 0.75
+
+    def test_boundary_min_score_negative_one(self):
+        s = Settings(retrieval_min_score=-1.0)
+        assert s.retrieval_min_score == -1.0
+
+    def test_boundary_min_score_positive_one(self):
+        s = Settings(retrieval_min_score=1.0)
+        assert s.retrieval_min_score == 1.0
+
+    def test_below_minimum_raises(self):
+        with pytest.raises(ValidationError, match="retrieval_min_score"):
+            Settings(retrieval_min_score=-1.1)
+
+    def test_above_maximum_raises(self):
+        with pytest.raises(ValidationError, match="retrieval_min_score"):
+            Settings(retrieval_min_score=1.1)
+
+    def test_bool_rejected(self):
+        with pytest.raises(ValidationError, match="retrieval_min_score"):
+            Settings(retrieval_min_score=True)
+
+    def test_non_numeric_rejected(self):
+        with pytest.raises(ValidationError, match="retrieval_min_score"):
+            Settings(retrieval_min_score="not-a-number")

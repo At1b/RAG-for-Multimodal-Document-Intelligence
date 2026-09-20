@@ -402,3 +402,168 @@ class TestExceptionHierarchy:
         from rag.orchestration.exceptions import OrchestrationError
 
         assert issubclass(EmptyRetrievalError, OrchestrationError)
+
+    def test_insufficient_context_error_subclasses(self):
+        """InsufficientContextError is a subclass of EmptyRetrievalError
+        and QueryError.
+        """
+        from rag.orchestration.exceptions import (
+            InsufficientContextError,
+            OrchestrationError,
+        )
+
+        assert issubclass(InsufficientContextError, EmptyRetrievalError)
+        assert issubclass(InsufficientContextError, QueryError)
+        assert issubclass(InsufficientContextError, OrchestrationError)
+
+
+# ---------------------------------------------------------------------------
+# Relevance Gate in RAGQueryService (Phase 6 Grounding)
+# ---------------------------------------------------------------------------
+
+
+class TestRelevanceGateInQueryService:
+    """Tests for relevance gating in RAGQueryService."""
+
+    def test_min_score_validation_in_init(self, mock_retriever, mock_generator):
+        """min_score in RAGQueryService.__init__ validates numeric range."""
+        from rag.orchestration.query_service import RAGQueryService
+
+        # Valid values
+        s1 = RAGQueryService(mock_retriever, mock_generator, min_score=0.3)
+        assert s1._min_score == 0.3
+
+        s2 = RAGQueryService(mock_retriever, mock_generator, min_score=-1.0)
+        assert s2._min_score == -1.0
+
+        s3 = RAGQueryService(mock_retriever, mock_generator, min_score=1.0)
+        assert s3._min_score == 1.0
+
+        # Invalid values
+        with pytest.raises(ValueError, match="min_score"):
+            RAGQueryService(mock_retriever, mock_generator, min_score=1.1)
+
+        with pytest.raises(ValueError, match="min_score"):
+            RAGQueryService(mock_retriever, mock_generator, min_score=-1.1)
+
+        with pytest.raises(ValueError, match="min_score"):
+            RAGQueryService(mock_retriever, mock_generator, min_score=True)
+
+        with pytest.raises(ValueError, match="min_score"):
+            RAGQueryService(mock_retriever, mock_generator, min_score="0.3")
+
+    def test_unrelated_query_rejected_and_llm_not_called(
+        self, mock_retriever, mock_generator
+    ):
+        """When all retrieved chunks are below min_score,
+        InsufficientContextError is raised and LLM is NOT called.
+        """
+        from rag.orchestration.exceptions import InsufficientContextError
+        from rag.orchestration.query_service import RAGQueryService
+        from rag.vectorstore.models import VectorSearchResult
+
+        # Retriever returns low-scoring unrelated chunks
+        mock_retriever.retrieve.return_value = [
+            VectorSearchResult(
+                chunk_id="c1",
+                document_id="d1",
+                document_name="ai.pdf",
+                content="AI overview",
+                score=0.04,
+            ),
+            VectorSearchResult(
+                chunk_id="c2",
+                document_id="d1",
+                document_name="ai.pdf",
+                content="ML overview",
+                score=0.01,
+            ),
+        ]
+
+        service = RAGQueryService(
+            retriever=mock_retriever,
+            generator=mock_generator,
+            min_score=0.30,
+        )
+
+        with pytest.raises(InsufficientContextError):
+            service.query("What is the capital of France?")
+
+        # LLM MUST NOT BE CALLED
+        mock_generator.generate.assert_not_called()
+
+    def test_relevant_chunks_pass_and_llm_called(self, mock_retriever, mock_generator):
+        """When retrieved chunks meet min_score, they reach the LLM generator."""
+        from rag.generation.models import GenerationResult
+        from rag.orchestration.query_service import RAGQueryService
+        from rag.vectorstore.models import VectorSearchResult
+
+        mock_retriever.retrieve.return_value = [
+            VectorSearchResult(
+                chunk_id="c1",
+                document_id="d1",
+                document_name="ai.pdf",
+                content="Machine learning is a subset of AI.",
+                score=0.65,
+            ),
+        ]
+        mock_generator.generate.return_value = GenerationResult(
+            answer="Machine learning is a subset of AI.",
+            model_name="test-model",
+        )
+
+        service = RAGQueryService(
+            retriever=mock_retriever,
+            generator=mock_generator,
+            min_score=0.30,
+        )
+
+        result = service.query("What is Machine Learning?")
+        assert result.answer == "Machine learning is a subset of AI."
+        assert result.num_chunks_retrieved == 1
+        mock_generator.generate.assert_called_once()
+
+    def test_partial_relevance_filters_out_low_scoring_chunks(
+        self, mock_retriever, mock_generator
+    ):
+        """When multiple chunks are retrieved and only some are relevant,
+        only relevant chunks reach generator.
+        """
+        from rag.generation.models import GenerationResult
+        from rag.orchestration.query_service import RAGQueryService
+        from rag.vectorstore.models import VectorSearchResult
+
+        chunk_high = VectorSearchResult(
+            chunk_id="c_high",
+            document_id="d1",
+            document_name="ai.pdf",
+            content="Deep learning uses neural networks.",
+            score=0.58,
+        )
+        chunk_low = VectorSearchResult(
+            chunk_id="c_low",
+            document_id="d1",
+            document_name="ai.pdf",
+            content="Irrelevant background snippet.",
+            score=0.15,
+        )
+
+        mock_retriever.retrieve.return_value = [chunk_high, chunk_low]
+        mock_generator.generate.return_value = GenerationResult(
+            answer="Deep learning uses neural networks.",
+            model_name="test-model",
+        )
+
+        service = RAGQueryService(
+            retriever=mock_retriever,
+            generator=mock_generator,
+            min_score=0.30,
+        )
+
+        result = service.query("What is deep learning?")
+        assert result.num_chunks_retrieved == 1
+
+        # Verify generator received only the high-scoring chunk
+        called_chunks = mock_generator.generate.call_args[0][1]
+        assert len(called_chunks) == 1
+        assert called_chunks[0].chunk_id == "c_high"

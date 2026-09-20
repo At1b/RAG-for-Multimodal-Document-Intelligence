@@ -27,6 +27,7 @@ class Retriever(ABC):
         self,
         query: str,
         top_k: int | None = None,
+        min_score: float | None = None,
     ) -> list[VectorSearchResult]:
         """Retrieve the most relevant chunks for a user query.
 
@@ -35,6 +36,9 @@ class Retriever(ABC):
             top_k: Maximum number of results to return.  When ``None``,
                 implementations should use a sensible default from
                 project configuration.
+            min_score: Optional minimum similarity score threshold.
+                Results with a score strictly below this threshold
+                are excluded.
 
         Returns:
             List of ``VectorSearchResult`` ordered by relevance

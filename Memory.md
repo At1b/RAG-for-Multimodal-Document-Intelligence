@@ -407,6 +407,33 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
     - Ruff lint and formatting checks 100% clean.
     - Live manual `/query` endpoint test against running FastAPI backend returned HTTP 200 with model `qwen2.5:0.5b-instruct`, 1 chunk retrieved, and clean, concise answer with zero prompt repetition or conversational filler.
 
+- **Phase 6 Grounding Failure: Prevention of Answers to Unrelated Queries (Relevance Gate)**:
+  - **Issue**: Manual testing on `sample_ai_overview.pdf` revealed that querying `"What is the capital of France?"` returned HTTP 200 with `"The capital of France is Paris."`, failing the baseline RAG grounding requirement because the answer was drawn entirely from the LLM's pretrained knowledge rather than the uploaded document.
+  - **Root Cause**: ChromaDB's vector search unconditionally returns the top-$k$ nearest neighbors regardless of distance. When querying an unrelated topic, low-similarity chunks (e.g. cosine similarity ~0.04) were returned to `RAGQueryService` and passed to the LLM generator, which ignored grounding refusal rules and answered from its pretrained weights.
+  - **Empirical Score Measurements** (`all-MiniLM-L6-v2` on `sample_ai_overview.pdf`):
+    - Relevant queries: top similarity scores between **0.4244** and **0.7005** (e.g., *"What is Machine Learning?"* scored 0.6465 with 1000-char chunks, 0.7005 with 500-char chunks; *"What applications of deep learning..."* scored 0.5747 / 0.6614).
+    - Unrelated queries: top similarity scores between **-0.0127** and **0.1432** (e.g., *"What is the capital of France?"* scored 0.0396 / 0.0545; cooking scored 0.0814 / 0.1072; history scored 0.0728 / 0.0791; out-of-domain astrophysics scored 0.1355 / 0.1432).
+    - Separation Gap: A wide, unambiguous gap exists between the highest unrelated score (0.1432) and the lowest relevant top score (0.4244).
+    - Threshold Selection: `RETRIEVAL_MIN_SCORE = 0.30` was chosen as a balanced baseline heuristic (more than $2\times$ higher than unrelated scores, and 0.12 below relevant scores).
+  - **Implementation**:
+    1. **Configuration**: Added `retrieval_min_score: float = 0.3` to `Settings` in `backend/config.py` with alias `RETRIEVAL_MIN_SCORE`, validated in `[-1.0, 1.0]` (rejecting booleans and non-numerics). Added to `.env.example`.
+    2. **Retrieval Layer**: `SemanticRetriever` owns primary relevance score filtering. Accepts optional `min_score` in `__init__` and `retrieve()`. Discards chunks with similarity score strictly below threshold, returning an empty list if no chunks qualify.
+    3. **Orchestration Layer**: Introduced `InsufficientContextError(EmptyRetrievalError)` in `rag/orchestration/exceptions.py`. `RAGQueryService` applies defensive score filtering and raises `InsufficientContextError` when context is empty or all chunks fall below threshold. The LLM generator is **never** called.
+    4. **API Layer**: `backend/query.py` catches `EmptyRetrievalError` (which includes `InsufficientContextError`) and returns HTTP 404 with descriptive detail, preserving existing API contract behavior.
+  - **Tests Added**:
+    - `TestRelevanceGate` in `tests/test_retrieval.py`: `min_score` validation (bounds, bool, nan/inf), threshold boundary tests (`score == min_score` kept, `score < min_score` dropped), partial relevance filtering, per-call override, and real embedding integration test.
+    - `TestRelevanceGateInQueryService` in `tests/test_query_orchestration.py`: `InsufficientContextError` inheritance, `min_score` validation, generator `assert_not_called()` on unrelated queries, partial relevance chunk forwarding.
+    - `TestRetrievalMinScoreValidation` in `tests/test_phase3_config.py`: defaults, custom values, bounds, bool rejection.
+    - `TestQueryEndpoint` in `tests/test_api_e2e.py`: verified `/query` returns HTTP 404 for unrelated query without calling generator.
+  - **Verification**:
+    - 580/580 tests passing (`pytest tests/ -v`).
+    - Ruff check & format 100% clean across 65 repository files.
+    - `git diff --check` clean.
+    - Real Ollama live `/query` smoke tests with `qwen2.5:0.5b-instruct`:
+      1. `"What is Machine Learning?"` $\to$ HTTP 200, grounded answer.
+      2. `"What applications of deep learning are mentioned in the document?"` $\to$ HTTP 200, grounded answer.
+      3. `"What is the capital of France?"` $\to$ HTTP 404, insufficient context error detail; **no LLM call, no pretrained Paris answer**.
+
 ---
 
 ## Technology Stack (Implemented)
@@ -509,6 +536,10 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 | Skip-aware live LLM test | Real Ollama generation tested when server is reachable, gracefully skipped in CI |
 | Question-first prompt structure | QUESTION placed before CONTEXT followed by Answer: in user message; avoids instruction/context echo with small LLMs (TinyLlama) |
 | Directive prose grounding prompt | Avoids numbered RULES headers in system message; prevents TinyLlama from interpreting prompt as rule-revision task |
+| RETRIEVAL_MIN_SCORE = 0.30 baseline heuristic | Empirically chosen separation threshold based on all-MiniLM-L6-v2 measurements (unrelated <= 0.143, relevant >= 0.424) |
+| SemanticRetriever owns relevance filtering | Filters out chunks below min_score at retrieval boundary; RAGQueryService handles resulting empty context and applies defensive check |
+| InsufficientContextError(EmptyRetrievalError) | Subclasses EmptyRetrievalError for backward compatibility while providing explicit semantic typing for relevance gate rejections |
+| Preserve HTTP 404 for insufficient context | Keeps existing API contract for queries with no supporting document evidence, avoiding breaking API changes |
 
 ---
 
@@ -527,6 +558,7 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
   - No source citations or page attribution in API response (only answer text and chunk count; deferred to Phase 7)
   - Multi-document retrieval occurs across a shared flat vector space without document filtering or provenance grouping
   - LLM generation relies on local Ollama availability; cold-start or low-spec CPU inference may experience latency
+  - `RETRIEVAL_MIN_SCORE = 0.30` is an empirically chosen Phase 6 baseline heuristic measured on `all-MiniLM-L6-v2` and `sample_ai_overview.pdf`, not a universally valid semantic threshold across all domains, models, or languages. Must be rigorously re-evaluated in Phase 11 evaluation framework.
 - Frontend is the default Vite/React template; no MM-RAG-specific UI yet
 - OCR is not implemented (deferred to Phase 10)
 - Scanned PDFs will extract no text (text extraction only, no image-based OCR)

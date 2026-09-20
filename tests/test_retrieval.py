@@ -889,3 +889,189 @@ class TestSemanticRetrievalIntegration:
         result = results[0]
         if result.chunk_id == "chunk-revenue-1":
             assert result.metadata.get("section") == "Financial Performance"
+
+    def test_relevance_gate_with_real_embeddings(self, integration_retriever):
+        """Integration test with real embeddings:
+        relevant query passes, unrelated query rejected.
+        """
+        retriever, _ = integration_retriever
+        # With min_score=0.30:
+        relevant = retriever.retrieve(
+            "What was the company revenue in 2024?", min_score=0.30
+        )
+        assert len(relevant) >= 1
+        assert "revenue" in relevant[0].content.lower()
+
+        unrelated = retriever.retrieve("What is the capital of France?", min_score=0.30)
+        assert len(unrelated) == 0
+
+
+# ======================================================================
+# 12. Relevance Gate (Phase 6 Grounding)
+# ======================================================================
+
+
+class TestRelevanceGate:
+    """Verify SemanticRetriever relevance gate score filtering."""
+
+    def test_min_score_constructor_validation_valid(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Valid min_score floats are accepted."""
+        r = SemanticRetriever(mock_embedding_service, mock_vector_store, min_score=0.3)
+        assert r.min_score == 0.3
+
+    def test_min_score_boundary_values(self, mock_embedding_service, mock_vector_store):
+        """Boundary values -1.0 and 1.0 are accepted."""
+        r_neg = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=-1.0
+        )
+        assert r_neg.min_score == -1.0
+        r_pos = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=1.0
+        )
+        assert r_pos.min_score == 1.0
+
+    def test_min_score_out_of_bounds_rejected(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Values outside [-1.0, 1.0] are rejected."""
+        with pytest.raises(ValueError, match="min_score"):
+            SemanticRetriever(
+                mock_embedding_service, mock_vector_store, min_score=-1.01
+            )
+        with pytest.raises(ValueError, match="min_score"):
+            SemanticRetriever(mock_embedding_service, mock_vector_store, min_score=1.01)
+
+    def test_min_score_bool_rejected(self, mock_embedding_service, mock_vector_store):
+        """Booleans are rejected for min_score."""
+        with pytest.raises(ValueError, match="min_score"):
+            SemanticRetriever(mock_embedding_service, mock_vector_store, min_score=True)
+
+    def test_min_score_nan_inf_rejected(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """NaN and inf values are rejected."""
+        import math
+
+        with pytest.raises(ValueError, match="min_score"):
+            SemanticRetriever(
+                mock_embedding_service, mock_vector_store, min_score=math.nan
+            )
+        with pytest.raises(ValueError, match="min_score"):
+            SemanticRetriever(
+                mock_embedding_service, mock_vector_store, min_score=math.inf
+            )
+
+    def test_relevant_query_passes_relevance_gate(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Chunks meeting or exceeding min_score pass through."""
+        mock_vector_store.query.return_value = [
+            _make_search_result(chunk_id="c1", score=0.65),
+            _make_search_result(chunk_id="c2", score=0.45),
+        ]
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        results = retriever.retrieve("What is Machine Learning?")
+        assert len(results) == 2
+        assert results[0].chunk_id == "c1"
+        assert results[1].chunk_id == "c2"
+
+    def test_unrelated_query_rejected(self, mock_embedding_service, mock_vector_store):
+        """Chunks below min_score are rejected, returning empty list."""
+        mock_vector_store.query.return_value = [
+            _make_search_result(chunk_id="c1", score=0.0396),
+            _make_search_result(chunk_id="c2", score=-0.0060),
+            _make_search_result(chunk_id="c3", score=-0.0093),
+        ]
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        results = retriever.retrieve("What is the capital of France?")
+        assert results == []
+
+    def test_empty_results_handled(self, mock_embedding_service, mock_vector_store):
+        """Empty vector store results produce empty list without error."""
+        mock_vector_store.query.return_value = []
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        results = retriever.retrieve("Any question")
+        assert results == []
+
+    def test_scores_at_threshold_are_kept(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Boundary test: score exactly equal to min_score is kept."""
+        mock_vector_store.query.return_value = [
+            _make_search_result(chunk_id="c_exact", score=0.30),
+        ]
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        results = retriever.retrieve("boundary test")
+        assert len(results) == 1
+        assert results[0].chunk_id == "c_exact"
+
+    def test_scores_below_threshold_are_discarded(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Boundary test: score just below min_score is discarded."""
+        mock_vector_store.query.return_value = [
+            _make_search_result(chunk_id="c_below", score=0.2999),
+        ]
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        results = retriever.retrieve("boundary test")
+        assert results == []
+
+    def test_multiple_results_partial_relevance(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Multiple results where only some are relevant:
+        relevant kept, low discarded.
+        """
+        mock_vector_store.query.return_value = [
+            _make_search_result(chunk_id="c1", score=0.85),
+            _make_search_result(chunk_id="c2", score=0.45),
+            _make_search_result(chunk_id="c3", score=0.25),
+            _make_search_result(chunk_id="c4", score=0.10),
+        ]
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        results = retriever.retrieve("test query", top_k=4)
+        assert len(results) == 2
+        assert [r.chunk_id for r in results] == ["c1", "c2"]
+
+    def test_per_call_min_score_override(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Per-call min_score overrides instance-configured threshold."""
+        mock_vector_store.query.return_value = [
+            _make_search_result(chunk_id="c1", score=0.55),
+            _make_search_result(chunk_id="c2", score=0.35),
+        ]
+        # Instance configured with 0.30 (both would pass)
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        # Call with override 0.50 (only c1 passes)
+        results = retriever.retrieve("test", min_score=0.50)
+        assert len(results) == 1
+        assert results[0].chunk_id == "c1"
+
+    def test_invalid_per_call_min_score_raises(
+        self, mock_embedding_service, mock_vector_store
+    ):
+        """Invalid per-call min_score raises InvalidQueryError."""
+        retriever = SemanticRetriever(
+            mock_embedding_service, mock_vector_store, min_score=0.30
+        )
+        with pytest.raises(InvalidQueryError, match="min_score"):
+            retriever.retrieve("test", min_score=1.5)
+        with pytest.raises(InvalidQueryError, match="min_score"):
+            retriever.retrieve("test", min_score=True)
