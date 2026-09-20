@@ -540,6 +540,8 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 | SemanticRetriever owns relevance filtering | Filters out chunks below min_score at retrieval boundary; RAGQueryService handles resulting empty context and applies defensive check |
 | InsufficientContextError(EmptyRetrievalError) | Subclasses EmptyRetrievalError for backward compatibility while providing explicit semantic typing for relevance gate rejections |
 | Preserve HTTP 404 for insufficient context | Keeps existing API contract for queries with no supporting document evidence, avoiding breaking API changes |
+| Phase 6 Frontend MVP | Simple single-page React UI with Document Ingestion, Question Form, and Answer Display; dedicated API client; strictly within Phase 6 scope |
+| Uncredentialed CORS for Vite dev ports | Backend CORSMiddleware configured with allow_credentials=False for localhost ports 5173 and 5174; enables browser requests during local development without altering API contracts |
 
 ---
 
@@ -559,7 +561,8 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
   - Multi-document retrieval occurs across a shared flat vector space without document filtering or provenance grouping
   - LLM generation relies on local Ollama availability; cold-start or low-spec CPU inference may experience latency
   - `RETRIEVAL_MIN_SCORE = 0.30` is an empirically chosen Phase 6 baseline heuristic measured on `all-MiniLM-L6-v2` and `sample_ai_overview.pdf`, not a universally valid semantic threshold across all domains, models, or languages. Must be rigorously re-evaluated in Phase 11 evaluation framework.
-- Frontend is the default Vite/React template; no MM-RAG-specific UI yet
+- Frontend is a simple functional MVP for the Phase 6 baseline API (PDF/DOCX upload and grounded question answering); multi-doc selection, citations UI, and conversation history deferred to later phases
+
 - OCR is not implemented (deferred to Phase 10)
 - Scanned PDFs will extract no text (text extraction only, no image-based OCR)
 - DOCX does not preserve page boundaries (entire content as single page)

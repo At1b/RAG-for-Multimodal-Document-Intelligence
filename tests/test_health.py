@@ -26,3 +26,24 @@ def test_health_endpoint_returns_environment():
     response = client.get("/health")
     data = response.json()
     assert "environment" in data
+
+
+def test_cors_headers_for_allowed_origin():
+    """CORS headers should be present for allowed frontend origin."""
+    response = client.get(
+        "/health",
+        headers={"Origin": "http://localhost:5173"},
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_cors_headers_rejected_for_disallowed_origin():
+    """Disallowed origins should not receive access-control-allow-origin header."""
+    response = client.get(
+        "/health",
+        headers={"Origin": "http://malicious-site.com"},
+    )
+    assert response.status_code == 200
+    assert "access-control-allow-origin" not in response.headers
+
