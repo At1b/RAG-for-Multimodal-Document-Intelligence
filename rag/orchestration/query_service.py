@@ -11,11 +11,16 @@ Flow::
         ↓
     Generator.generate()         →  GenerationResult
         ↓
-    QueryResult
+    format_sources()             →  list[Source]
+        ↓
+    QueryResult (answer + sources)
 
 This service does NOT duplicate retrieval, embedding, context building,
 prompt construction, or LLM invocation logic.  It delegates entirely
 to existing Phase 4–5 abstractions.
+
+Sources/citations are built from actual retrieval metadata in
+application code — never from LLM output.  See Phase 7 design.
 
 The service is independent of FastAPI / HTTP request-response objects.
 """
@@ -27,6 +32,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from rag.citations.formatter import format_sources
+from rag.citations.models import Source
 from rag.generation.base import Generator
 from rag.generation.exceptions import InvalidQuestionError
 from rag.orchestration.exceptions import (
@@ -46,19 +53,23 @@ class QueryResult(BaseModel):
     or ``GenerationResult`` — it presents the essential information
     for API consumers.
 
-    Ready for Phase 7 citations: a ``sources`` field can be added
-    without breaking the existing interface.
+    Phase 7: Includes structured ``sources`` built from actual
+    retrieved chunk metadata.  Sources are never fabricated or
+    derived from LLM output.
 
     Attributes:
         answer: The generated answer text.
         model_name: Identifier of the LLM model used.
         num_chunks_retrieved: Number of context chunks retrieved.
+        sources: Structured source/citation list from retrieved chunks.
+            Built from application-level metadata, not LLM output.
         metadata: Generation metadata (e.g. temperature, latency).
     """
 
     answer: str = Field(..., min_length=1)
     model_name: str = Field(default="")
     num_chunks_retrieved: int = Field(..., ge=0)
+    sources: list[Source] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -159,9 +170,15 @@ class RAGQueryService:
             generation_result.model_name,
         )
 
+        # Step 4: Build structured sources from retrieval metadata.
+        # Sources are built from application-level metadata — never
+        # from LLM output.  This ensures citation integrity.
+        sources = format_sources(results)
+
         return QueryResult(
             answer=generation_result.answer,
             model_name=generation_result.model_name,
             num_chunks_retrieved=len(results),
+            sources=sources,
             metadata=generation_result.metadata,
         )

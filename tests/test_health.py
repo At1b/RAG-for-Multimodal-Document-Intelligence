@@ -35,7 +35,9 @@ def test_cors_headers_for_allowed_origin():
         headers={"Origin": "http://localhost:5173"},
     )
     assert response.status_code == 200
-    assert response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    assert (
+        response.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    )
 
 
 def test_cors_headers_rejected_for_disallowed_origin():
@@ -46,4 +48,3 @@ def test_cors_headers_rejected_for_disallowed_origin():
     )
     assert response.status_code == 200
     assert "access-control-allow-origin" not in response.headers
-

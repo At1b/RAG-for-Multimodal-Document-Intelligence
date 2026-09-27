@@ -1,19 +1,21 @@
-"""MM-RAG Orchestration Layer — Phase 6A.
+"""MM-RAG Orchestration Layer — Phase 6A + Phase 7.
 
 Application-level services that connect ingestion, chunking, embedding,
 retrieval, and generation into end-to-end RAG workflows.
 
 Public API:
     DocumentIndexingService  — index a document (ingest → chunk → embed → store).
-    RAGQueryService          — answer a question (retrieve → generate).
+    RAGQueryService          — answer a question (retrieve → generate → cite).
     IndexingResult           — result of a document indexing operation.
-    QueryResult              — result of a RAG query operation.
+    QueryResult              — result of a RAG query operation (with sources).
+    Source                   — structured source/citation model (Phase 7).
     OrchestrationError       — base exception for orchestration failures.
     DocumentIndexingError    — indexing pipeline failure.
     QueryError               — query pipeline failure.
     EmptyRetrievalError      — no usable retrieval context.
 """
 
+from rag.citations.models import Source
 from rag.orchestration.exceptions import (
     DocumentIndexingError,
     EmptyRetrievalError,
@@ -40,4 +42,5 @@ __all__ = [
     "QueryError",
     "QueryResult",
     "RAGQueryService",
+    "Source",
 ]

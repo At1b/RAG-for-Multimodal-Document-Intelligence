@@ -6,7 +6,7 @@ import { InsufficientContextError } from '../api/client';
  *
  * @param {object} props
  * @param {boolean} props.isQuerying - Whether answer generation is running
- * @param {{ answer: string, model_name: string, num_chunks_retrieved: number } | null} props.queryResult - Generation result
+ * @param {{ answer: string, model_name: string, num_chunks_retrieved: number, sources?: Array<{ document_id: string, document_name: string, page_number: number|null, chunk_id: string, score: number }> } | null} props.queryResult - Generation result
  * @param {Error | null} props.queryError - Query error object if any
  * @param {string | null} props.lastQuestion - The question corresponding to current answer
  */
@@ -18,6 +18,8 @@ export function AnswerDisplay({
 }) {
   const isInsufficientContext =
     queryError instanceof InsufficientContextError || queryError?.status === 404;
+
+  const sources = queryResult?.sources || [];
 
   return (
     <section className="card answer-section" aria-labelledby="answer-heading">
@@ -59,10 +61,10 @@ export function AnswerDisplay({
           </div>
           <p className="alert-message">
             {queryError.message ||
-              'The indexed document does not contain enough relevant information to answer this question.'}
+              'The indexed documents do not contain enough relevant information to answer this question.'}
           </p>
           <p className="alert-suggestion">
-            Try rephrasing your question or ask about topics covered in the uploaded document.
+            Try rephrasing your question or ask about topics covered in the uploaded documents.
           </p>
         </div>
       )}
@@ -90,6 +92,31 @@ export function AnswerDisplay({
           <div className="answer-text">
             {queryResult.answer}
           </div>
+
+          {/* Phase 7: Sources / Citations */}
+          {sources.length > 0 && (
+            <div className="sources-section" aria-labelledby="sources-heading">
+              <h3 id="sources-heading" className="sources-title">
+                📄 Sources
+              </h3>
+              <ul className="sources-list">
+                {sources.map((source, idx) => (
+                  <li key={source.chunk_id || idx} className="source-item">
+                    <span className="source-index">[{idx + 1}]</span>
+                    <span className="source-doc-name">{source.document_name}</span>
+                    {source.page_number != null && (
+                      <span className="source-page">— Page {source.page_number}</span>
+                    )}
+                    {typeof source.score === 'number' && !isNaN(source.score) && (
+                      <span className="source-score" title="Similarity score">
+                        ({(source.score * 100).toFixed(1)}% match)
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -99,7 +126,7 @@ export function AnswerDisplay({
           <span className="empty-icon" aria-hidden="true">💬</span>
           <p className="empty-title">No question asked yet</p>
           <p className="empty-description">
-            Ask a question above to retrieve grounded answers from your indexed document.
+            Ask a question above to retrieve grounded answers from your indexed documents.
           </p>
         </div>
       )}

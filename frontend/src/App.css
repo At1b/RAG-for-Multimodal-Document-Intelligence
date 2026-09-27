@@ -548,6 +548,67 @@
 }
 
 /* --------------------------------------------------------------------------
+   Phase 7: Sources / Citations
+   -------------------------------------------------------------------------- */
+.sources-section {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.sources-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.sources-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.source-item {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  background-color: var(--bg-card-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.source-index {
+  font-weight: 700;
+  color: var(--primary);
+  font-size: 0.82rem;
+  min-width: 22px;
+}
+
+.source-doc-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.source-page {
+  color: var(--text-muted);
+}
+
+.source-score {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* --------------------------------------------------------------------------
    Empty & Loading States
    -------------------------------------------------------------------------- */
 .state-card {

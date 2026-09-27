@@ -2,6 +2,8 @@
 
 Thin route handler: accepts a question, delegates to RAGQueryService,
 maps exceptions to HTTP responses.
+
+Phase 7: Returns structured source citations from retrieval metadata.
 """
 
 from __future__ import annotations
@@ -38,12 +40,29 @@ class QueryRequest(BaseModel):
     )
 
 
+class SourceResponse(BaseModel):
+    """A single source/citation in the query response.
+
+    Phase 7: Structured source built from actual retrieval metadata.
+    """
+
+    document_id: str
+    document_name: str
+    page_number: int | None = None
+    chunk_id: str
+    score: float
+
+
 class QueryResponse(BaseModel):
-    """Response body for the /query endpoint."""
+    """Response body for the /query endpoint.
+
+    Phase 7: Includes structured sources/citations from retrieval.
+    """
 
     answer: str
     model_name: str
     num_chunks_retrieved: int
+    sources: list[SourceResponse] = []
 
 
 # Mapping from query/generation exception types to HTTP status codes.
@@ -129,4 +148,14 @@ async def query(request: QueryRequest):
         answer=result.answer,
         model_name=result.model_name,
         num_chunks_retrieved=result.num_chunks_retrieved,
+        sources=[
+            SourceResponse(
+                document_id=s.document_id,
+                document_name=s.document_name,
+                page_number=s.page_number,
+                chunk_id=s.chunk_id,
+                score=s.score,
+            )
+            for s in result.sources
+        ],
     )

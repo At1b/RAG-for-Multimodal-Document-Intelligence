@@ -146,7 +146,7 @@ export async function uploadDocument(file) {
  *
  * @param {string} question - Question string.
  * @param {number | null} [topK=null] - Optional top_k override.
- * @returns {Promise<{ answer: string, model_name: string, num_chunks_retrieved: number }>}
+ * @returns {Promise<{ answer: string, model_name: string, num_chunks_retrieved: number, sources: Array<{ document_id: string, document_name: string, page_number: number|null, chunk_id: string, score: number }> }>}
  */
 export async function submitQuery(question, topK = null) {
   if (!question || !question.trim()) {

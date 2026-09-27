@@ -111,7 +111,7 @@ export default function App() {
 
       <footer className="footer">
         <p className="footer-text">
-          MM-RAG Phase 6 MVP &bull; End-to-End Semantic Retrieval &amp; Generation
+          MM-RAG Phase 7 &bull; Multi-Document Support &amp; Citations
         </p>
       </footer>
     </div>

@@ -4,7 +4,7 @@
 
 **Phase 7 — Multi-Document Support and Citations**
 
-Status: **NOT_STARTED** (Phase 6 is COMPLETED)
+Status: **COMPLETED**
 
 ---
 
@@ -436,6 +436,31 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 
 ---
 
+### Phase 7 — Multi-Document Support and Citations (Completed)
+
+- **Status**: Completed
+- **Citation/Source model**: `Source` (Pydantic) in `rag/citations/models.py`
+  - Fields: `document_id`, `document_name`, `page_number` (optional `int`), `chunk_id`, `score` (optional `float`), `metadata` (dict)
+  - `page_number` is `None` when metadata lacks page info — never fabricated or defaulted
+  - All fields strictly validated via Pydantic (`min_length=1` for IDs and names, `gt=0` for page numbers)
+- **Citation formatter**: `format_sources()` in `rag/citations/formatter.py`
+  - Converts `list[VectorSearchResult]` → `list[Source]`
+  - Application-level citation provenance: assembled purely from retrieved vector chunk metadata, strictly **never** generated or trusted from LLM output
+  - Deduplicates by `chunk_id` (first/highest-scored wins)
+  - Preserves retrieval ordering (most relevant first)
+  - Robust `_extract_page_number` extraction supporting `page_number` and fallback `page` keys, rejecting non-integers, booleans, and non-positive values
+- **QueryResult**: Updated with `sources: list[Source]` field (default: empty list, fully backward compatible)
+- **API Response**: `backend/query.py` updated to serialize `sources: list[SourceResponse]` in `QueryResponse`
+- **Cross-document retrieval**: Shared ChromaDB collection seamlessly indexes multiple documents with distinct `document_id` and `document_name` preservation
+- **Conflicting information**: Multiple conflicting documents (e.g. updated figures/dates) are both retrieved with distinct source identity, allowing the user/downstream consumer to identify provenance
+- **Relevance gate preservation**: Minimum similarity score threshold (`retrieval_min_score = 0.3`) continues to block out-of-domain queries across multi-document indices with HTTP 404 `InsufficientContextError`
+- **Frontend**: Minimal citations display added to `AnswerDisplay.jsx` showing document name, page badge, relevance score badge, and chunk ID without redesigning the Phase 6 UI; safely handles non-numeric or missing scores
+- **75 Phase 7 tests** in `tests/test_phase7_citations.py` covering model validation, formatter ordering, deduplication, metadata passthrough, page extraction fallbacks, cross-document retrieval, conflicting document retrieval, API endpoint integration, DOCX single-page attribution, missing page null preservation, and real multi-page PDF fixtures (`country_alpha.pdf`, `country_beta.pdf`, `country_alpha_updated.pdf`)
+- **Total test suite: 657 passed** across all 20 test suites (0 regressions)
+- **No new external dependencies added**
+
+---
+
 ## Technology Stack (Implemented)
 
 | Component | Technology | Version |
@@ -541,7 +566,9 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 | InsufficientContextError(EmptyRetrievalError) | Subclasses EmptyRetrievalError for backward compatibility while providing explicit semantic typing for relevance gate rejections |
 | Preserve HTTP 404 for insufficient context | Keeps existing API contract for queries with no supporting document evidence, avoiding breaking API changes |
 | Phase 6 Frontend MVP | Simple single-page React UI with Document Ingestion, Question Form, and Answer Display; dedicated API client; strictly within Phase 6 scope |
-| Uncredentialed CORS for Vite dev ports | Backend CORSMiddleware configured with allow_credentials=False for localhost ports 5173 and 5174; enables browser requests during local development without altering API contracts |
+| Application-level citation provenance | Citations are formatted strictly from vector search result metadata, never generated or trusted from LLM |
+| Truthful missing metadata | Missing page_number in chunks/metadata remains None/null; never fabricated or guessed |
+| _extract_page_number key fallback | Supports both page_number and legacy page metadata keys with strict integer conversion and non-positive exclusion |
 
 ---
 
@@ -553,19 +580,18 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 
 ## Known Limitations
 
-- Baseline limitations observed in Phase 6:
+- Baseline limitations observed in Phase 6 & Phase 7:
   - Single-turn baseline only (no conversation history or chat memory)
   - Retrieval is semantic-only (no BM25 keyword search or hybrid retrieval yet — deferred to Phase 8)
   - No cross-encoder reranking of retrieved candidates (deferred to Phase 9)
-  - No source citations or page attribution in API response (only answer text and chunk count; deferred to Phase 7)
   - Multi-document retrieval occurs across a shared flat vector space without document filtering or provenance grouping
   - LLM generation relies on local Ollama availability; cold-start or low-spec CPU inference may experience latency
   - `RETRIEVAL_MIN_SCORE = 0.30` is an empirically chosen Phase 6 baseline heuristic measured on `all-MiniLM-L6-v2` and `sample_ai_overview.pdf`, not a universally valid semantic threshold across all domains, models, or languages. Must be rigorously re-evaluated in Phase 11 evaluation framework.
-- Frontend is a simple functional MVP for the Phase 6 baseline API (PDF/DOCX upload and grounded question answering); multi-doc selection, citations UI, and conversation history deferred to later phases
+- Frontend is a simple functional MVP for the baseline API (PDF/DOCX upload, grounded question answering, and citations display); multi-doc selection, filtering UI, and conversation history deferred to later phases
 
 - OCR is not implemented (deferred to Phase 10)
 - Scanned PDFs will extract no text (text extraction only, no image-based OCR)
-- DOCX does not preserve page boundaries (entire content as single page)
+- DOCX does not preserve native physical page boundaries (entire content as single logical page `page_number=1`)
 - Tables in DOCX are extracted as pipe-separated plain text
 - No document persistence/storage — in-memory processing only
 - No database — documents are processed and returned, not stored
@@ -578,7 +604,6 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 
 ## Not Started
 
-- Multi-document support and citations (Phase 7)
 - Hybrid retrieval (Phase 8)
 - Reranking (Phase 9)
 - OCR and multimodal processing (Phase 10)
@@ -591,12 +616,12 @@ Status: **NOT_STARTED** (Phase 6 is COMPLETED)
 
 ## Next Immediate Tasks
 
-1. Begin Phase 7 — Multi-Document Support and Citations
-2. Support indexing and querying across multiple identified documents
-3. Implement citation formatter (document name, page number, chunk identifier)
-4. Add citation metadata to query API response
-5. Add cross-document and multi-source attribution tests
+1. Begin Phase 8 — Hybrid Retrieval (BM25 + Semantic Search)
+2. Implement sparse keyword retriever (BM25)
+3. Implement reciprocal rank fusion (RRF) or score normalization to combine sparse and dense results
+4. Add configuration parameters for hybrid search weights / modes
+5. Implement unit and integration tests for hybrid retrieval
 
 ---
 
-Last Updated: 2026-09-19
+Last Updated: 2026-09-27

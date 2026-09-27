@@ -270,6 +270,14 @@ class TestQueryEndpoint:
         assert data["answer"]  # non-empty
         assert "model_name" in data
         assert data["num_chunks_retrieved"] >= 1
+        assert "sources" in data
+        assert isinstance(data["sources"], list)
+        assert len(data["sources"]) >= 1
+        s = data["sources"][0]
+        assert s["document_name"] == "rag_paper.pdf"
+        assert s["page_number"] == 1
+        assert s["chunk_id"]
+        assert s["score"] >= 0.30
         # Verify the mocked generator was called.
         mock_gen.generate.assert_called_once()
 
@@ -450,4 +458,9 @@ class TestCompleteBaselineFlow:
             },
         )
         assert response.status_code == 200
-        assert response.json()["answer"]
+        data = response.json()
+        assert data["answer"]
+        assert "sources" in data
+        source_names = {s["document_name"] for s in data["sources"]}
+        assert "ml_overview.pdf" in source_names
+        assert "dl_overview.pdf" in source_names
