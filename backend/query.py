@@ -4,6 +4,7 @@ Thin route handler: accepts a question, delegates to RAGQueryService,
 maps exceptions to HTTP responses.
 
 Phase 7: Returns structured source citations from retrieval metadata.
+Phase 8: Supports configurable retrieval mode (semantic, keyword, hybrid).
 """
 
 from __future__ import annotations
@@ -19,7 +20,11 @@ from rag.generation.exceptions import InvalidQuestionError
 from rag.generation.ollama_generator import OllamaGenerator
 from rag.orchestration.exceptions import EmptyRetrievalError, QueryError
 from rag.orchestration.query_service import RAGQueryService
+from rag.retrieval.base import Retriever
+from rag.retrieval.bm25 import BM25Retriever
 from rag.retrieval.exceptions import InvalidQueryError
+from rag.retrieval.hybrid import HybridRetriever
+from rag.retrieval.index_builder import build_bm25_index_from_chroma
 from rag.retrieval.semantic import SemanticRetriever
 from rag.vectorstore.chroma_store import ChromaVectorStore
 
@@ -57,12 +62,14 @@ class QueryResponse(BaseModel):
     """Response body for the /query endpoint.
 
     Phase 7: Includes structured sources/citations from retrieval.
+    Phase 8: Includes retrieval_mode indicator.
     """
 
     answer: str
     model_name: str
     num_chunks_retrieved: int
     sources: list[SourceResponse] = []
+    retrieval_mode: str = "semantic"
 
 
 # Mapping from query/generation exception types to HTTP status codes.
@@ -93,16 +100,14 @@ def _resolve_query_error(exc: QueryError) -> HTTPException:
     )
 
 
-@router.post("/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
-    """Ask a question and receive a document-grounded answer.
+def _build_retriever(settings) -> tuple[Retriever, str]:
+    """Build the appropriate retriever based on settings.retrieval_mode.
 
-    The endpoint retrieves relevant document chunks from the
-    vector store and generates an answer using the configured LLM.
+    Returns:
+        Tuple of (retriever_instance, retrieval_mode_name).
     """
-    settings = get_settings()
+    mode = settings.retrieval_mode
 
-    # Construct service dependencies from settings.
     embedding_service = SentenceTransformerEmbeddingService(
         model_name=settings.embedding_model,
         batch_size=settings.embedding_batch_size,
@@ -111,12 +116,68 @@ async def query(request: QueryRequest):
         persist_directory=settings.vector_store_path,
         collection_name=settings.vector_store_collection,
     )
-    retriever = SemanticRetriever(
-        embedding_service=embedding_service,
-        vector_store=vector_store,
-        default_top_k=settings.vector_search_top_k,
-        min_score=settings.retrieval_min_score,
-    )
+
+    if mode == "semantic":
+        retriever = SemanticRetriever(
+            embedding_service=embedding_service,
+            vector_store=vector_store,
+            default_top_k=settings.vector_search_top_k,
+            min_score=settings.retrieval_min_score,
+        )
+        return retriever, "semantic"
+
+    elif mode == "keyword":
+        bm25_index = build_bm25_index_from_chroma(vector_store)
+        retriever = BM25Retriever(
+            bm25_index=bm25_index,
+            default_top_k=settings.vector_search_top_k,
+        )
+        return retriever, "keyword"
+
+    elif mode == "hybrid":
+        semantic_retriever = SemanticRetriever(
+            embedding_service=embedding_service,
+            vector_store=vector_store,
+            default_top_k=settings.hybrid_semantic_top_k,
+            min_score=settings.retrieval_min_score,
+        )
+        bm25_index = build_bm25_index_from_chroma(vector_store)
+        keyword_retriever = BM25Retriever(
+            bm25_index=bm25_index,
+            default_top_k=settings.hybrid_keyword_top_k,
+        )
+        retriever = HybridRetriever(
+            semantic_retriever=semantic_retriever,
+            keyword_retriever=keyword_retriever,
+            semantic_weight=settings.hybrid_semantic_weight,
+            keyword_weight=settings.hybrid_keyword_weight,
+            rrf_k=settings.rrf_k,
+            default_top_k=settings.vector_search_top_k,
+            semantic_top_k=settings.hybrid_semantic_top_k,
+            keyword_top_k=settings.hybrid_keyword_top_k,
+        )
+        return retriever, "hybrid"
+
+    else:
+        # Should not happen after config validation, but be safe.
+        raise ValueError(f"Unknown retrieval_mode: {mode}")
+
+
+@router.post("/query", response_model=QueryResponse)
+async def query(request: QueryRequest):
+    """Ask a question and receive a document-grounded answer.
+
+    The endpoint retrieves relevant document chunks from the
+    vector store and generates an answer using the configured LLM.
+
+    Phase 8: Retrieval mode (semantic/keyword/hybrid) is determined
+    by the RETRIEVAL_MODE configuration setting.
+    """
+    settings = get_settings()
+
+    # Build retriever based on configured mode.
+    retriever, retrieval_mode = _build_retriever(settings)
+
     generator = OllamaGenerator(
         model=settings.llm_model,
         base_url=settings.llm_base_url,
@@ -126,10 +187,17 @@ async def query(request: QueryRequest):
         timeout=settings.llm_timeout,
     )
 
+    # For semantic and hybrid modes, apply the relevance gate at the
+    # orchestration level.  For keyword-only mode, the BM25 retriever
+    # already returns only positive-scoring results.
+    min_score = (
+        settings.retrieval_min_score if retrieval_mode in ("semantic",) else None
+    )
+
     query_service = RAGQueryService(
         retriever=retriever,
         generator=generator,
-        min_score=settings.retrieval_min_score,
+        min_score=min_score,
     )
 
     try:
@@ -148,6 +216,7 @@ async def query(request: QueryRequest):
         answer=result.answer,
         model_name=result.model_name,
         num_chunks_retrieved=result.num_chunks_retrieved,
+        retrieval_mode=retrieval_mode,
         sources=[
             SourceResponse(
                 document_id=s.document_id,

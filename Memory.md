@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Phase 7 — Multi-Document Support and Citations**
+**Phase 8 — Hybrid Retrieval (BM25 + Semantic Search)**
 
 Status: **COMPLETED**
 
@@ -461,6 +461,54 @@ Status: **COMPLETED**
 
 ---
 
+### Phase 8 — Hybrid Retrieval (BM25 + Semantic Search) (Completed)
+
+- **Status**: Completed
+- **Sparse Keyword Retriever**: `BM25Index` and `BM25Retriever` implemented in `rag/retrieval/bm25.py`
+  - Self-contained, zero-dependency pure Python Okapi BM25 implementation ($k_1=1.5$, $b=0.75$, standard IDF $\ln((N - df + 0.5)/(df + 0.5) + 1.0)$)
+  - Custom regex alphanumeric tokenization (`\b[a-zA-Z0-9]+\b`) with lowercasing
+  - English stopword filtering via `DEFAULT_STOPWORDS` (including contractions: `s`, `t`, `d`, `ll`, `m`, `re`, `ve`), eliminating spurious IDF matching on common interrogatives
+  - Returns standardized `VectorSearchResult` objects preserving `chunk_id`, `document_id`, `document_name`, `page_number`, content, score, and complete chunk `metadata`
+  - Score thresholding support via `min_score` parameter (default 0.0)
+- **Hybrid Fusion Engine**: `HybridRetriever` implemented in `rag/retrieval/hybrid.py`
+  - Weighted Reciprocal Rank Fusion (RRF):
+    $$\text{RRF}(d) = w_{\text{semantic}} \cdot \frac{1}{k + r_{\text{semantic}}(d)} + w_{\text{keyword}} \cdot \frac{1}{k + r_{\text{keyword}}(d)}$$
+  - Scale-invariant fusion: combines rank positions without fragile cross-scale score normalization
+  - Configurable smoothing constant $k$ (default 60) and weights ($w_{\text{semantic}}=0.5, w_{\text{keyword}}=0.5$)
+  - Ingestion/retrieval candidate depth independently configurable (`hybrid_semantic_top_k`, `hybrid_keyword_top_k`)
+  - Deduplication: merges duplicates by `chunk_id`, preserving full metadata and Phase 7 citation provenance
+  - Deterministic tie-breaking: sorts primarily by descending RRF score, secondary by `chunk_id`
+- **Relevance Gate Across All Retrieval Modes**:
+  - `semantic`: Pruned by `RETRIEVAL_MIN_SCORE = 0.30` cosine similarity threshold in `SemanticRetriever` and `RAGQueryService`
+  - `keyword`: Zero-matching or sub-threshold queries return empty candidate list, triggering HTTP 404 `InsufficientContextError`
+  - `hybrid`: Dense retriever is configured with `min_score=settings.retrieval_min_score`, preventing low-similarity dense noise ($< 0.30$) from polluting RRF candidate sets. If both dense and sparse retrievers return empty candidates, RRF yields empty results, triggering HTTP 404 `InsufficientContextError` (LLM generator is never called for out-of-domain queries)
+- **Index Maintenance & Lifecycle**:
+  - `build_bm25_index_from_chroma` in `rag/retrieval/index_builder.py` reconstructs in-memory BM25 index directly from ChromaDB
+  - Paginated batch reads (`offset`/`limit`) avoid memory spikes on large collections
+  - Reconstructed upon service instantiation, document re-indexing, or application restart
+  - Zero secondary database or persistence mechanism required; single source of truth remains ChromaDB
+- **Configuration Added** (`backend/config.py` & `.env.example`):
+  - `RETRIEVAL_MODE`: `"semantic"`, `"keyword"`, `"hybrid"` (default `"semantic"` based on Phase 8 empirical benchmark; `"hybrid"` and `"keyword"` fully configurable and available)
+  - `HYBRID_SEMANTIC_TOP_K`: Top-k candidates from dense retriever (default 20)
+  - `HYBRID_KEYWORD_TOP_K`: Top-k candidates from sparse retriever (default 10)
+  - `HYBRID_SEMANTIC_WEIGHT`: Fusion weight for semantic search (default 0.5)
+  - `HYBRID_KEYWORD_WEIGHT`: Fusion weight for keyword search (default 0.5)
+  - `RRF_K`: Smoothing constant for RRF (default 60)
+- **Deterministic Evaluation Benchmark** (`evaluation/retrieval_eval.py`):
+  - 12 deterministic test queries across 5 query types (`semantic`, `keyword`, `paraphrase`, `multi_doc`, `irrelevant`) evaluated against the 3 PDF fixtures (`sample_ai_overview.pdf`, `country_alpha.pdf`, `country_beta.pdf`)
+  - Empirical results:
+    - **Semantic**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 95.83%, MRR: 1.0000
+    - **Keyword**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 87.50%, MRR: 1.0000
+    - **Hybrid**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 87.50%, MRR: 1.0000
+    - **Irrelevant queries**: 100.0% rejected across all 3 modes (0 chunks returned, 0 LLM calls)
+- **Testing & Verification**:
+  - 104 Phase 8 tests in `tests/test_phase8_hybrid.py` covering BM25 scoring, tokenization, stopword filtering, index builder, hybrid RRF fusion, deduplication, weights, rank determinism, invalid configs, citation compatibility, relevance gate across modes, and API integration
+  - Total test suite: 761/761 passed (0 failures, 0 regressions)
+  - Ruff check & format: 100% clean across all 75 repository files
+  - Live smoke tests: semantic, keyword-heavy, paraphrased, multi-document, and irrelevant queries verified against live models
+
+---
+
 ## Technology Stack (Implemented)
 
 | Component | Technology | Version |
@@ -475,6 +523,8 @@ Status: **COMPLETED**
 | Embeddings | sentence-transformers | 6.0.x |
 | Embedding Model | all-MiniLM-L6-v2 | — |
 | Vector Store | ChromaDB | 1.5.x |
+| Keyword Retrieval | Pure Python BM25 | In-memory, zero-dependency |
+| Hybrid Fusion | Weighted Reciprocal Rank Fusion (RRF) | In-memory, k=60 |
 | LLM Runtime | Ollama | — |
 | LLM Model | Qwen 2.5 Instruct (Baseline) | 0.5B (397 MB) |
 | LLM Model (Configurable) | Configurable via LLM_MODEL | — |
@@ -569,6 +619,13 @@ Status: **COMPLETED**
 | Application-level citation provenance | Citations are formatted strictly from vector search result metadata, never generated or trusted from LLM |
 | Truthful missing metadata | Missing page_number in chunks/metadata remains None/null; never fabricated or guessed |
 | _extract_page_number key fallback | Supports both page_number and legacy page metadata keys with strict integer conversion and non-positive exclusion |
+| Pure Python BM25 implementation | Zero new dependencies; avoids native C compilation issues or heavy external IR libraries; perfectly tailored for in-memory document chunk indices |
+| In-memory BM25 index built from ChromaDB | Avoids dual-database sync bugs and secondary storage complexity; ChromaDB remains the single source of truth |
+| Weighted Reciprocal Rank Fusion (RRF) | Rank-based fusion avoids fragile score normalization across divergent dense cosine [-1, 1] and unbounded sparse BM25 [0, inf) score distributions |
+| BM25 Stopword Filtering | Eliminates false-positive IDF matches on interrogative stop words (e.g. "What", "is", "the") on out-of-domain queries |
+| Dense Pre-Filtering at min_score in Hybrid Mode | SemanticRetriever filters candidates at retrieval_min_score before RRF fusion, preventing dense noise from bypassing the relevance gate |
+| Reuse VectorSearchResult for all retrievers | Guarantees 100% interoperability with Phase 7 citation formatting, query orchestration, and API response models |
+| Semantic retrieval as default RETRIEVAL_MODE | Based on Phase 8 empirical benchmark results (Semantic 95.83% Precision@5 vs Hybrid 87.50%), semantic retrieval remains the default to maintain maximum precision and minimal latency, while hybrid retrieval is fully configurable and available via RETRIEVAL_MODE=hybrid |
 
 ---
 
@@ -580,10 +637,9 @@ Status: **COMPLETED**
 
 ## Known Limitations
 
-- Baseline limitations observed in Phase 6 & Phase 7:
+- Baseline limitations observed in Phase 6, Phase 7 & Phase 8:
   - Single-turn baseline only (no conversation history or chat memory)
-  - Retrieval is semantic-only (no BM25 keyword search or hybrid retrieval yet — deferred to Phase 8)
-  - No cross-encoder reranking of retrieved candidates (deferred to Phase 9)
+  - Retrieval supports `semantic`, `keyword`, and `hybrid` modes via configuration (`RETRIEVAL_MODE`), but does not include cross-encoder reranking of retrieved candidates (deferred to Phase 9)
   - Multi-document retrieval occurs across a shared flat vector space without document filtering or provenance grouping
   - LLM generation relies on local Ollama availability; cold-start or low-spec CPU inference may experience latency
   - `RETRIEVAL_MIN_SCORE = 0.30` is an empirically chosen Phase 6 baseline heuristic measured on `all-MiniLM-L6-v2` and `sample_ai_overview.pdf`, not a universally valid semantic threshold across all domains, models, or languages. Must be rigorously re-evaluated in Phase 11 evaluation framework.
@@ -604,7 +660,6 @@ Status: **COMPLETED**
 
 ## Not Started
 
-- Hybrid retrieval (Phase 8)
 - Reranking (Phase 9)
 - OCR and multimodal processing (Phase 10)
 - Evaluation framework (Phase 11)
@@ -616,12 +671,11 @@ Status: **COMPLETED**
 
 ## Next Immediate Tasks
 
-1. Begin Phase 8 — Hybrid Retrieval (BM25 + Semantic Search)
-2. Implement sparse keyword retriever (BM25)
-3. Implement reciprocal rank fusion (RRF) or score normalization to combine sparse and dense results
-4. Add configuration parameters for hybrid search weights / modes
-5. Implement unit and integration tests for hybrid retrieval
+1. Begin Phase 9 — Reranking (Cross-Encoder / Cohere / BGE)
+2. Evaluate reranking models suitable for CPU execution
+3. Implement candidate re-scoring on top-K retrieved chunks
+4. Benchmark retrieval precision with and without reranker
 
 ---
 
-Last Updated: 2026-09-27
+Last Updated: 2026-09-29

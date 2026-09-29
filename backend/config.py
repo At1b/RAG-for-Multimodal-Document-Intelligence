@@ -40,6 +40,38 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("retrieval_min_score", "RETRIEVAL_MIN_SCORE"),
     )
 
+    # Phase 8: Hybrid Retrieval
+    # Retrieval mode: "semantic", "keyword", or "hybrid".
+    retrieval_mode: str = Field(
+        default="semantic",
+        validation_alias=AliasChoices("retrieval_mode", "RETRIEVAL_MODE"),
+    )
+    # Per-retriever candidate counts for hybrid mode.
+    hybrid_semantic_top_k: int = Field(
+        default=20,
+        validation_alias=AliasChoices("hybrid_semantic_top_k", "HYBRID_SEMANTIC_TOP_K"),
+    )
+    hybrid_keyword_top_k: int = Field(
+        default=20,
+        validation_alias=AliasChoices("hybrid_keyword_top_k", "HYBRID_KEYWORD_TOP_K"),
+    )
+    # Weights for RRF score fusion (semantic vs keyword contribution).
+    hybrid_semantic_weight: float = Field(
+        default=1.0,
+        validation_alias=AliasChoices(
+            "hybrid_semantic_weight", "HYBRID_SEMANTIC_WEIGHT"
+        ),
+    )
+    hybrid_keyword_weight: float = Field(
+        default=1.0,
+        validation_alias=AliasChoices("hybrid_keyword_weight", "HYBRID_KEYWORD_WEIGHT"),
+    )
+    # RRF constant (k) — dampens influence of top ranks.  Standard default = 60.
+    rrf_k: int = Field(
+        default=60,
+        validation_alias=AliasChoices("rrf_k", "RRF_K"),
+    )
+
     # Phase 5: LLM Generation
     llm_model: str = DEFAULT_MODEL
     llm_base_url: str = "http://localhost:11434"
@@ -143,6 +175,48 @@ class Settings(BaseSettings):
                 f"retrieval_min_score must be between -1.0 and 1.0, got {v}"
             )
         return float(v)
+
+    # ------------------------------------------------------------------
+    # Phase 8: Hybrid Retrieval validators
+    # ------------------------------------------------------------------
+
+    @field_validator("retrieval_mode")
+    @classmethod
+    def _retrieval_mode_valid(cls, v: str) -> str:
+        valid_modes = {"semantic", "keyword", "hybrid"}
+        stripped = v.strip().lower() if v else ""
+        if stripped not in valid_modes:
+            raise ValueError(
+                f"retrieval_mode must be one of {sorted(valid_modes)}, got '{v}'"
+            )
+        return stripped
+
+    @field_validator("hybrid_semantic_top_k", "hybrid_keyword_top_k")
+    @classmethod
+    def _hybrid_top_k_valid(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"hybrid top_k must be >= 1, got {v}")
+        if v > 1000:
+            raise ValueError(f"hybrid top_k must be <= 1000, got {v}")
+        return v
+
+    @field_validator("hybrid_semantic_weight", "hybrid_keyword_weight")
+    @classmethod
+    def _hybrid_weight_valid(cls, v: float) -> float:
+        if v < 0.0:
+            raise ValueError(f"hybrid weight must be >= 0, got {v}")
+        if v > 10.0:
+            raise ValueError(f"hybrid weight must be <= 10.0, got {v}")
+        return float(v)
+
+    @field_validator("rrf_k")
+    @classmethod
+    def _rrf_k_valid(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"rrf_k must be >= 1, got {v}")
+        if v > 1000:
+            raise ValueError(f"rrf_k must be <= 1000, got {v}")
+        return v
 
     @model_validator(mode="after")
     def _validate_chunk_overlap(self) -> Self:
