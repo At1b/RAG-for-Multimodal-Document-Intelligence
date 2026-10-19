@@ -6,7 +6,7 @@ import { InsufficientContextError } from '../api/client';
  *
  * @param {object} props
  * @param {boolean} props.isQuerying - Whether answer generation is running
- * @param {{ answer: string, model_name: string, num_chunks_retrieved: number, sources?: Array<{ document_id: string, document_name: string, page_number: number|null, chunk_id: string, score: number }> } | null} props.queryResult - Generation result
+ * @param {{ answer: string, model_name: string, num_chunks_retrieved: number, sources?: Array<{ document_id: string, document_name: string, page_number: number|null, chunk_id: string, score: number, reranker_score?: number|null }>, retrieval_mode?: string, reranker_applied?: boolean } | null} props.queryResult - Generation result
  * @param {Error | null} props.queryError - Query error object if any
  * @param {string | null} props.lastQuestion - The question corresponding to current answer
  */
@@ -108,8 +108,26 @@ export function AnswerDisplay({
                       <span className="source-page">— Page {source.page_number}</span>
                     )}
                     {typeof source.score === 'number' && !isNaN(source.score) && (
-                      <span className="source-score" title="Similarity score">
-                        ({(source.score * 100).toFixed(1)}% match)
+                      <span
+                        className="source-score"
+                        title={
+                          queryResult?.retrieval_mode === 'hybrid'
+                            ? 'Reciprocal Rank Fusion score'
+                            : 'Similarity score'
+                        }
+                      >
+                        {queryResult?.retrieval_mode === 'hybrid'
+                          ? `(RRF: ${source.score.toFixed(4)})`
+                          : `(${(source.score * 100).toFixed(1)}% match)`}
+                      </span>
+                    )}
+                    {typeof source.reranker_score === 'number' && !isNaN(source.reranker_score) && (
+                      <span
+                        className="source-reranker-score"
+                        title="Cross-encoder relevance logit"
+                        style={{ marginLeft: '6px', fontSize: '0.85em', color: '#6366f1' }}
+                      >
+                        [rerank: {source.reranker_score > 0 ? `+${source.reranker_score.toFixed(2)}` : source.reranker_score.toFixed(2)}]
                       </span>
                     )}
                   </li>

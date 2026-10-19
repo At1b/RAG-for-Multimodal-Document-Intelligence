@@ -10,16 +10,18 @@ Phase 8: Supports configurable retrieval mode (semantic, keyword, hybrid).
 from __future__ import annotations
 
 import logging
+import threading
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.config import get_settings
+from backend.config import Settings, get_settings
 from rag.embeddings.sentence_transformer import SentenceTransformerEmbeddingService
 from rag.generation.exceptions import InvalidQuestionError
 from rag.generation.ollama_generator import OllamaGenerator
 from rag.orchestration.exceptions import EmptyRetrievalError, QueryError
 from rag.orchestration.query_service import RAGQueryService
+from rag.reranking.cross_encoder import CrossEncoderReranker
 from rag.retrieval.base import Retriever
 from rag.retrieval.bm25 import BM25Retriever
 from rag.retrieval.exceptions import InvalidQueryError
@@ -31,6 +33,31 @@ from rag.vectorstore.chroma_store import ChromaVectorStore
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["query"])
+
+# Cached reranker instance to avoid reloading model weights per query.
+_reranker_instance: CrossEncoderReranker | None = None
+_reranker_lock = threading.Lock()
+
+
+def get_reranker(settings: Settings) -> CrossEncoderReranker | None:
+    """Return the cached reranker instance, recreating only if configuration changes."""
+    global _reranker_instance
+    if not settings.reranker_enabled:
+        return None
+    if (
+        _reranker_instance is None
+        or _reranker_instance.model_name != settings.reranker_model
+    ):
+        with _reranker_lock:
+            if (
+                _reranker_instance is None
+                or _reranker_instance.model_name != settings.reranker_model
+            ):
+                _reranker_instance = CrossEncoderReranker(
+                    model_name=settings.reranker_model,
+                    default_top_k=settings.vector_search_top_k,
+                )
+    return _reranker_instance
 
 
 class QueryRequest(BaseModel):
@@ -49,6 +76,7 @@ class SourceResponse(BaseModel):
     """A single source/citation in the query response.
 
     Phase 7: Structured source built from actual retrieval metadata.
+    Phase 9: Includes optional reranker_score.
     """
 
     document_id: str
@@ -56,6 +84,7 @@ class SourceResponse(BaseModel):
     page_number: int | None = None
     chunk_id: str
     score: float
+    reranker_score: float | None = None
 
 
 class QueryResponse(BaseModel):
@@ -63,6 +92,7 @@ class QueryResponse(BaseModel):
 
     Phase 7: Includes structured sources/citations from retrieval.
     Phase 8: Includes retrieval_mode indicator.
+    Phase 9: Includes reranker_applied indicator.
     """
 
     answer: str
@@ -70,6 +100,7 @@ class QueryResponse(BaseModel):
     num_chunks_retrieved: int
     sources: list[SourceResponse] = []
     retrieval_mode: str = "semantic"
+    reranker_applied: bool = False
 
 
 # Mapping from query/generation exception types to HTTP status codes.
@@ -194,10 +225,16 @@ async def query(request: QueryRequest):
         settings.retrieval_min_score if retrieval_mode in ("semantic",) else None
     )
 
+    reranker = get_reranker(settings)
+
     query_service = RAGQueryService(
         retriever=retriever,
         generator=generator,
         min_score=min_score,
+        reranker=reranker,
+        candidate_top_k=(
+            settings.reranker_candidate_top_k if settings.reranker_enabled else None
+        ),
     )
 
     try:
@@ -217,6 +254,7 @@ async def query(request: QueryRequest):
         model_name=result.model_name,
         num_chunks_retrieved=result.num_chunks_retrieved,
         retrieval_mode=retrieval_mode,
+        reranker_applied=bool(settings.reranker_enabled),
         sources=[
             SourceResponse(
                 document_id=s.document_id,
@@ -224,6 +262,7 @@ async def query(request: QueryRequest):
                 page_number=s.page_number,
                 chunk_id=s.chunk_id,
                 score=s.score,
+                reranker_score=s.reranker_score,
             )
             for s in result.sources
         ],

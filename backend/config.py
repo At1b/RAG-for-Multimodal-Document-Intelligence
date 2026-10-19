@@ -72,6 +72,22 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("rrf_k", "RRF_K"),
     )
 
+    # Phase 9: Reranking
+    reranker_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("reranker_enabled", "RERANKER_ENABLED"),
+    )
+    reranker_model: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        validation_alias=AliasChoices("reranker_model", "RERANKER_MODEL"),
+    )
+    reranker_candidate_top_k: int = Field(
+        default=20,
+        validation_alias=AliasChoices(
+            "reranker_candidate_top_k", "RERANKER_CANDIDATE_TOP_K"
+        ),
+    )
+
     # Phase 5: LLM Generation
     llm_model: str = DEFAULT_MODEL
     llm_base_url: str = "http://localhost:11434"
@@ -216,6 +232,30 @@ class Settings(BaseSettings):
             raise ValueError(f"rrf_k must be >= 1, got {v}")
         if v > 1000:
             raise ValueError(f"rrf_k must be <= 1000, got {v}")
+        return v
+
+    # ------------------------------------------------------------------
+    # Phase 9: Reranking validators
+    # ------------------------------------------------------------------
+
+    @field_validator("reranker_model")
+    @classmethod
+    def _reranker_model_non_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("reranker_model must be a non-empty string")
+        return v.strip()
+
+    @field_validator("reranker_candidate_top_k")
+    @classmethod
+    def _reranker_candidate_top_k_valid(cls, v: int) -> int:
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(
+                f"reranker_candidate_top_k must be an integer, got {type(v).__name__}"
+            )
+        if v < 1:
+            raise ValueError(f"reranker_candidate_top_k must be >= 1, got {v}")
+        if v > 1000:
+            raise ValueError(f"reranker_candidate_top_k must be <= 1000, got {v}")
         return v
 
     @model_validator(mode="after")

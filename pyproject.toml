@@ -21,6 +21,9 @@ select = [
 [tool.ruff.lint.isort]
 known-first-party = ["backend", "rag", "evaluation"]
 
+[tool.ruff.lint.per-file-ignores]
+"evaluation/*" = ["E402"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

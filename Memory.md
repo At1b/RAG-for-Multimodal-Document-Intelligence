@@ -2,9 +2,9 @@
 
 ## Current Phase
 
-**Phase 8 — Hybrid Retrieval (BM25 + Semantic Search)**
+**Phase 9 — Reranking (Cross-Encoder)**
 
-Status: **COMPLETED**
+Status: **COMPLETED (Hardened and Verified)**
 
 ---
 
@@ -495,17 +495,87 @@ Status: **COMPLETED**
   - `HYBRID_KEYWORD_WEIGHT`: Fusion weight for keyword search (default 0.5)
   - `RRF_K`: Smoothing constant for RRF (default 60)
 - **Deterministic Evaluation Benchmark** (`evaluation/retrieval_eval.py`):
-  - 12 deterministic test queries across 5 query types (`semantic`, `keyword`, `paraphrase`, `multi_doc`, `irrelevant`) evaluated against the 3 PDF fixtures (`sample_ai_overview.pdf`, `country_alpha.pdf`, `country_beta.pdf`)
-  - Empirical results:
-    - **Semantic**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 95.83%, MRR: 1.0000
-    - **Keyword**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 87.50%, MRR: 1.0000
-    - **Hybrid**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 87.50%, MRR: 1.0000
-    - **Irrelevant queries**: 100.0% rejected across all 3 modes (0 chunks returned, 0 LLM calls)
+  - 12 deterministic test queries across 5 query types (`semantic`, `keyword`, `paraphrase`, `multi_doc`, `irrelevant`) evaluated against 3 PDF fixtures (`sample_ai_overview.pdf`, `country_alpha.pdf`, `country_beta.pdf`; 5 chunks total indexed with chunk_size=1000, chunk_overlap=200)
+  - Empirical results across 9 relevant queries (ranking metrics exclude 3 irrelevant queries):
+    - **Semantic**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 94.44%, MRR: 1.0000
+    - **Keyword**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 83.33%, MRR: 1.0000
+    - **Hybrid**: Hit@5: 100.0%, Recall@5: 100.0%, Precision@5: 83.33%, MRR: 1.0000
+    - **Relevance Gate**: 100.0% rejection across all 3 irrelevant queries (0 chunks returned, 0 LLM calls)
 - **Testing & Verification**:
   - 104 Phase 8 tests in `tests/test_phase8_hybrid.py` covering BM25 scoring, tokenization, stopword filtering, index builder, hybrid RRF fusion, deduplication, weights, rank determinism, invalid configs, citation compatibility, relevance gate across modes, and API integration
   - Total test suite: 761/761 passed (0 failures, 0 regressions)
   - Ruff check & format: 100% clean across all 75 repository files
   - Live smoke tests: semantic, keyword-heavy, paraphrased, multi-document, and irrelevant queries verified against live models
+
+---
+
+### Phase 9 — Reranking (Cross-Encoder) (Completed)
+
+- **Status**: Completed (Hardened and Verified)
+- **Reranker Interface & Models**:
+  - Abstract `Reranker` ABC in `rag/reranking/base.py`: defines `rerank(query: str, candidates: list[VectorSearchResult], top_k: int | None = None) -> list[VectorSearchResult]`
+  - Concrete `CrossEncoderReranker` in `rag/reranking/cross_encoder.py`
+  - Selected model: `cross-encoder/ms-marco-MiniLM-L-6-v2` (~80 MB, Apache 2.0 license)
+    - Fully compatible with already-installed `sentence-transformers` 6.0.x (zero new external dependencies)
+    - Lightweight 6-layer MiniLM architecture; executes fast on local CPU without GPU requirements
+    - Directly accepts `(query, document_chunk)` text pairs and outputs unconstrained relevance logits
+  - Custom exception hierarchy in `rag/reranking/exceptions.py`: `RerankingError`, `InvalidCandidateError`, `RerankerModelInitializationError`, `RerankerInferenceError`
+  - Lazy model loading & cross-instance process cache: Model weights are loaded lazily on first rerank call and cached in a thread-safe process cache (`_MODEL_CACHE`), guaranteeing model weights are never reloaded per request
+  - Offline testability: Injectable `model` and `scorer` abstractions allow 100% unit and integration testing without network access, downloads, or GPU resources
+- **Candidate Retrieval & Composition**:
+  - `RerankingRetriever` in `rag/retrieval/reranking.py` implements the standard `Retriever` ABC interface
+  - Wraps any underlying retriever (`SemanticRetriever`, `BM25Retriever`, `HybridRetriever`) and composes with `Reranker`
+  - Retrieval flow: Base retriever retrieves `candidate_top_k` (expanding if caller `top_k > candidate_top_k`) → Reranker scores candidate pairs → Returns final top-K reordered results
+  - Bounded limits enforced: `candidate_top_k` in [1, 1000], `top_k` in [1, 1000]
+  - Empty candidate handling: If base retriever yields 0 candidates (e.g. out-of-domain query filtered by min_score), the reranker model is never invoked and an empty list is immediately returned
+- **Score Semantics & Deterministic Ordering**:
+  - Preserves original retrieval scores (`score` and `metadata["retrieval_score"]`)
+  - Stores cross-encoder logits distinctly in `metadata["reranker_score"]` and `Source.reranker_score` / `SourceResponse.reranker_score`
+  - Never conflates cross-encoder logits with cosine similarity, and never reuses `RETRIEVAL_MIN_SCORE = 0.30` as a cross-encoder threshold
+  - Deterministic tie-breaking on identical scores: sorted by `(-score, original_index, chunk_id)`
+  - Output validation: strictly enforces matching score count, numeric types, and finite values (rejects NaN / Infinity)
+- **Phase 7 Citation & Provenance Preservation**:
+  - `chunk_id`, `document_id`, `document_name`, `page_number`, `content`, and all dictionary metadata are preserved intact through reranking
+  - Application-level citation provenance in `format_sources()` preserves reordered context ranking, attaches `reranker_score`, and excludes non-finite scores
+  - Frontend `AnswerDisplay.jsx` updated to render distinct `[rerank: +X.XX]` badges without confusing cross-encoder logits or hybrid RRF scores with percentage match rates
+- **Relevance Gate & Failure Safety**:
+  - Candidate retrieval relevance filtering (`min_score` in dense retriever and keyword stopword filtering) remains active before reranking
+  - Unrelated queries yield 0 candidates, bypassing the reranker and generator, raising HTTP 404 `InsufficientContextError`
+- **Second-Pass Hardening Corrections**:
+  - Model Weight Reuse: Added thread-safe process cache (`_MODEL_CACHE`, `_MODEL_CACHE_LOCK`) in `CrossEncoderReranker` and `get_reranker` singleton in `backend/query.py` so model weights are reused across requests rather than reloaded every HTTP request
+  - Robust Score Unpacking: Fixed `_score_pairs` to handle 0-d numpy arrays and scalar float returns cleanly, preventing uncaught `TypeError`
+  - Duplicate Reranking Protection: Added check in `RAGQueryService.__init__` rejecting `RerankingRetriever` combined with a separate `reranker`, preventing accidental double reranking
+  - Orphan Config Guard: Added check in `RAGQueryService.__init__` ensuring `candidate_top_k` cannot be set without a configured `reranker`
+  - `min_score` Validation: Added numeric, boolean, and bound `[-1.0, 1.0]` validation in `RerankingRetriever.retrieve()`
+  - Citation Formatter Safety: Guarded `format_sources()` with `math.isfinite` for `reranker_score` to prevent NaN/Inf propagation
+  - Standalone Execution Fix: Added repository root `sys.path` injection in `evaluation/retrieval_eval.py` to fix standalone script execution
+- **Configuration Added** (`backend/config.py` & `.env.example`):
+  - `RERANKER_ENABLED`: `bool` (default `False`, keeping reranking opt-in based on empirical benchmarks)
+  - `RERANKER_MODEL`: `str` (default `"cross-encoder/ms-marco-MiniLM-L-6-v2"`)
+  - `RERANKER_CANDIDATE_TOP_K`: `int` (default `20`, validated in [1, 1000])
+- **Empirical Latency Measurements** (`evaluation/retrieval_eval.py`, local CPU):
+  - Model Cold-Start (initial load): ~6.74s (subsequent calls reuse loaded instance)
+  - Median Query Latency & Overhead (measurements from same run):
+    - Keyword: 0.04 ms (p95: 0.14 ms) | Overhead: N/A
+    - Semantic: 10.71 ms (p95: 13.48 ms) | Overhead: Baseline
+    - Semantic + Rerank: 37.59 ms (p95: 66.58 ms) | Overhead: +26.88 ms median (+53.10 ms p95)
+    - Hybrid: 10.71 ms (p95: 13.31 ms) | Overhead: Baseline
+    - Hybrid + Rerank: 40.00 ms (p95: 108.21 ms) | Overhead: +29.29 ms median (+94.91 ms p95)
+- **Empirical Retrieval Quality Evaluation** (9 relevant queries, 3 irrelevant queries over 3 fixture PDFs, 5 chunks total):
+  - **Hit@5 (Relevant, n=9)**: 100.0% across all 5 evaluated modes (`semantic`, `semantic+rerank`, `keyword`, `hybrid`, `hybrid+rerank`)
+  - **Recall@5 (Relevant, n=9)**: 100.0% across all 5 modes
+  - **MRR (Relevant, n=9)**: 1.0000 across all 5 modes
+  - **Precision@5 (Relevant, n=9)**:
+    - Semantic: 94.44% | Semantic + Rerank: 94.44%
+    - Keyword: 83.33%
+    - Hybrid: 83.33% | Hybrid + Rerank: 83.33%
+  - **Relevance Gate (Irrelevant, n=3)**: 100.0% rejection across all modes (0 candidates returned; verified orchestration prevents LLM generator invocation on 100% of irrelevant queries)
+  - **Empirical Conclusion**: On the small 3-fixture corpus where semantic search already achieves 94.44% precision and 1.0000 MRR, reranking preserves 100% of retrieval quality while adding ~27 ms median warm latency. Keeping `RERANKER_ENABLED=false` as an opt-in configurable setting is the correct, empirically grounded decision. Full evaluation on larger benchmarks belongs in Phase 11.
+- **Testing & Verification**:
+  - 59 Phase 9 tests in `tests/test_phase9_reranking.py` (including candidate relevance gate tests, hardening, and concurrency tests)
+  - Full test suite: 820/820 passed (0 regressions, 0 failures)
+  - Ruff check & format: 100% clean across all 81 repository files
+  - Frontend lint & build: 100% clean (oxlint: 0 errors, 0 warnings; vite build: successful)
 
 ---
 
@@ -525,6 +595,7 @@ Status: **COMPLETED**
 | Vector Store | ChromaDB | 1.5.x |
 | Keyword Retrieval | Pure Python BM25 | In-memory, zero-dependency |
 | Hybrid Fusion | Weighted Reciprocal Rank Fusion (RRF) | In-memory, k=60 |
+| Reranker Model | cross-encoder/ms-marco-MiniLM-L-6-v2 | 6 layers, ~80 MB |
 | LLM Runtime | Ollama | — |
 | LLM Model | Qwen 2.5 Instruct (Baseline) | 0.5B (397 MB) |
 | LLM Model (Configurable) | Configurable via LLM_MODEL | — |
@@ -626,6 +697,13 @@ Status: **COMPLETED**
 | Dense Pre-Filtering at min_score in Hybrid Mode | SemanticRetriever filters candidates at retrieval_min_score before RRF fusion, preventing dense noise from bypassing the relevance gate |
 | Reuse VectorSearchResult for all retrievers | Guarantees 100% interoperability with Phase 7 citation formatting, query orchestration, and API response models |
 | Semantic retrieval as default RETRIEVAL_MODE | Based on Phase 8 empirical benchmark results (Semantic 95.83% Precision@5 vs Hybrid 87.50%), semantic retrieval remains the default to maintain maximum precision and minimal latency, while hybrid retrieval is fully configurable and available via RETRIEVAL_MODE=hybrid |
+| cross-encoder/ms-marco-MiniLM-L-6-v2 for reranking | ~80 MB, Apache 2.0, CPU-practical, compatible with existing sentence-transformers 6.0.x; zero new dependencies |
+| Abstract Reranker ABC | Allows swapping reranker implementation or model without touching retriever or query services |
+| Injectable model/scorer for Reranker | Enables 100% offline unit and integration tests without model downloads or GPU resources |
+| Distinct reranker_score metadata | Avoids conflating cross-encoder logits with cosine similarity, preserving both original retrieval score and reranker score |
+| Compositional RerankingRetriever | Wraps any Retriever ABC instance (semantic, keyword, hybrid) with Reranker, keeping retrievers independently usable |
+| Candidate-depth vs final-K bounds | Enforces candidate_top_k in [1, 1000] and expands candidate pool if top_k > candidate_top_k |
+| RERANKER_ENABLED=false default | Empirically grounded default (Semantic precision already 95.83% and MRR 1.0; reranker adds ~20ms overhead); keeps reranking strictly opt-in |
 
 ---
 
@@ -637,11 +715,12 @@ Status: **COMPLETED**
 
 ## Known Limitations
 
-- Baseline limitations observed in Phase 6, Phase 7 & Phase 8:
+- Baseline limitations observed in Phase 6, Phase 7, Phase 8 & Phase 9:
   - Single-turn baseline only (no conversation history or chat memory)
-  - Retrieval supports `semantic`, `keyword`, and `hybrid` modes via configuration (`RETRIEVAL_MODE`), but does not include cross-encoder reranking of retrieved candidates (deferred to Phase 9)
+  - Retrieval supports `semantic`, `keyword`, and `hybrid` modes via configuration (`RETRIEVAL_MODE`), with optional cross-encoder reranking (`RERANKER_ENABLED=true`, candidate top-K reranked via `cross-encoder/ms-marco-MiniLM-L-6-v2`)
   - Multi-document retrieval occurs across a shared flat vector space without document filtering or provenance grouping
   - LLM generation relies on local Ollama availability; cold-start or low-spec CPU inference may experience latency
+  - Reranker runs on local CPU; model load takes ~6.8s on cold start, warm reranking adds ~20ms latency per query
   - `RETRIEVAL_MIN_SCORE = 0.30` is an empirically chosen Phase 6 baseline heuristic measured on `all-MiniLM-L6-v2` and `sample_ai_overview.pdf`, not a universally valid semantic threshold across all domains, models, or languages. Must be rigorously re-evaluated in Phase 11 evaluation framework.
 - Frontend is a simple functional MVP for the baseline API (PDF/DOCX upload, grounded question answering, and citations display); multi-doc selection, filtering UI, and conversation history deferred to later phases
 
@@ -660,7 +739,6 @@ Status: **COMPLETED**
 
 ## Not Started
 
-- Reranking (Phase 9)
 - OCR and multimodal processing (Phase 10)
 - Evaluation framework (Phase 11)
 - Optimization and reliability (Phase 12)
@@ -671,11 +749,9 @@ Status: **COMPLETED**
 
 ## Next Immediate Tasks
 
-1. Begin Phase 9 — Reranking (Cross-Encoder / Cohere / BGE)
-2. Evaluate reranking models suitable for CPU execution
-3. Implement candidate re-scoring on top-K retrieved chunks
-4. Benchmark retrieval precision with and without reranker
+1. Review and merge Phase 9 (`feat/phase-9-reranking`) into develop
+2. Begin Phase 10 — OCR and multimodal processing (PyMuPDF / OCR / Vision)
 
 ---
 
-Last Updated: 2026-09-29
+Last Updated: 2026-10-19

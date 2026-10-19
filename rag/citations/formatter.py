@@ -16,6 +16,7 @@ Design principles:
 from __future__ import annotations
 
 import logging
+import math
 
 from rag.citations.models import Source
 from rag.vectorstore.models import VectorSearchResult
@@ -74,6 +75,15 @@ def format_sources(
         meta = result.metadata or {}
         page_number = _extract_page_number(meta)
 
+        raw_reranker_score = meta.get("reranker_score")
+        reranker_score = (
+            float(raw_reranker_score)
+            if isinstance(raw_reranker_score, (int, float))
+            and not isinstance(raw_reranker_score, bool)
+            and math.isfinite(raw_reranker_score)
+            else None
+        )
+
         sources.append(
             Source(
                 document_id=result.document_id,
@@ -81,6 +91,7 @@ def format_sources(
                 page_number=page_number,
                 chunk_id=result.chunk_id,
                 score=result.score,
+                reranker_score=reranker_score,
                 metadata=meta,
             )
         )

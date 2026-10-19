@@ -40,7 +40,9 @@ from rag.orchestration.exceptions import (
     InsufficientContextError,
     QueryError,
 )
+from rag.reranking.base import Reranker
 from rag.retrieval.base import Retriever
+from rag.retrieval.reranking import RerankingRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +87,8 @@ class RAGQueryService:
         min_score: Optional defensive minimum similarity score threshold.
             SemanticRetriever owns primary score filtering; this threshold
             serves as an additional defensive safeguard.
+        reranker: Optional Phase 9 cross-encoder reranker.
+        candidate_top_k: Optional candidate depth to retrieve before reranking.
     """
 
     def __init__(
@@ -92,6 +96,8 @@ class RAGQueryService:
         retriever: Retriever,
         generator: Generator,
         min_score: float | None = None,
+        reranker: Reranker | None = None,
+        candidate_top_k: int | None = None,
     ) -> None:
         if min_score is not None:
             if not isinstance(min_score, (int, float)) or isinstance(min_score, bool):
@@ -103,9 +109,37 @@ class RAGQueryService:
                     f"min_score must be between -1.0 and 1.0, got {min_score}"
                 )
 
+        if reranker is not None and not isinstance(reranker, Reranker):
+            raise TypeError(
+                f"reranker must be a Reranker instance, got {type(reranker).__name__}"
+            )
+
+        if reranker is not None and isinstance(retriever, RerankingRetriever):
+            raise ValueError(
+                "retriever is already a RerankingRetriever; do not provide a separate "
+                "reranker to RAGQueryService to prevent duplicate reranking."
+            )
+
+        if reranker is None and candidate_top_k is not None:
+            raise ValueError("candidate_top_k cannot be specified without a reranker")
+
+        if candidate_top_k is not None:
+            if (
+                not isinstance(candidate_top_k, int)
+                or isinstance(candidate_top_k, bool)
+                or candidate_top_k < 1
+                or candidate_top_k > 1000
+            ):
+                raise ValueError(
+                    f"candidate_top_k must be an integer between 1 and 1000, "
+                    f"got {candidate_top_k}"
+                )
+
         self._retriever = retriever
         self._generator = generator
         self._min_score = float(min_score) if min_score is not None else None
+        self._reranker = reranker
+        self._candidate_top_k = candidate_top_k
 
     def query(
         self,
@@ -134,7 +168,14 @@ class RAGQueryService:
         """
         # Step 1: Retrieve relevant context chunks.
         try:
-            results = self._retriever.retrieve(question, top_k=top_k)
+            if self._reranker is not None:
+                # Determine candidate retrieval depth
+                candidate_depth = self._candidate_top_k or 20
+                if top_k is not None and top_k > candidate_depth:
+                    candidate_depth = top_k
+                results = self._retriever.retrieve(question, top_k=candidate_depth)
+            else:
+                results = self._retriever.retrieve(question, top_k=top_k)
         except InvalidQuestionError:
             # Let invalid-question errors pass through directly —
             # callers should handle these distinctly from pipeline failures.
@@ -147,12 +188,28 @@ class RAGQueryService:
         if self._min_score is not None:
             results = [r for r in results if r.score >= self._min_score]
 
-        # Step 3: Validate retrieval produced usable context.
+        # Step 3: Validate retrieval produced usable context before reranking/LLM.
         if not results:
             raise InsufficientContextError(
                 "Retrieval returned no results or usable context for the "
                 "question - cannot generate an answer without supporting context."
             )
+
+        # Step 4: Apply reranker if configured
+        if self._reranker is not None:
+            try:
+                results = self._reranker.rerank(
+                    query=question,
+                    candidates=results,
+                    top_k=top_k,
+                )
+            except Exception as exc:
+                raise QueryError(f"Reranking failed for question: {exc}") from exc
+
+            if not results:
+                raise InsufficientContextError(
+                    "Reranker returned no results for the question."
+                )
 
         logger.info(
             "Retrieved %d context chunks for question.",

@@ -40,4 +40,5 @@ class Source(BaseModel):
     page_number: int | None = Field(default=None)
     chunk_id: str = Field(..., min_length=1)
     score: float = Field(default=0.0)
+    reranker_score: float | None = Field(default=None)
     metadata: dict[str, Any] = Field(default_factory=dict)
