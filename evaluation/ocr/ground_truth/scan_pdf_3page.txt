@@ -1,0 +1,5 @@
+Page one introduces the fundamental principles of multimodal document ingestion. Text layers are analyzed to identify scanned content requiring optical character recognition.
+
+Page two examines layout reconstruction and bounding box coordinates. Words are grouped into lines and blocks based on spatial coordinates returned by the optical engine.
+
+Page three concludes with provenance preservation and citation integrity. Metadata tracks the exact source document, page number, and extraction method throughout the indexing workflow.

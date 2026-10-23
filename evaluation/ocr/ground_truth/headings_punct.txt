@@ -1,0 +1,6 @@
+SECTION 1.0: EXECUTIVE SUMMARY
+
+The evaluation recorded 1,250 queries (sample size: 95% confidence interval; margin of error: +/-2.5%). Key findings include:
+- System throughput reached 45.8 requests/second;
+- Accuracy improved by 18.4% ("high-precision mode");
+- Latency remained under 350ms across all trials.

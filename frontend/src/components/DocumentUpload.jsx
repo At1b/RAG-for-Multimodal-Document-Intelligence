@@ -116,13 +116,13 @@ export function DocumentUpload({
               fileInputRef.current?.click();
             }
           }}
-          aria-label="Upload document area. Click or drop a PDF or DOCX file."
+          aria-label="Upload document area. Click or drop a PDF, DOCX, PNG, or JPEG file."
         >
           <input
             type="file"
             ref={fileInputRef}
             onChange={handleInputChange}
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept=".pdf,.docx,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"
             disabled={isUploading}
             style={{ display: 'none' }}
             id="document-file-input"
@@ -143,10 +143,10 @@ export function DocumentUpload({
           ) : (
             <div className="dropzone-instructions">
               <span className="dropzone-primary-text">
-                Choose a PDF or DOCX file or drag it here
+                Choose a file or drag it here
               </span>
               <span className="dropzone-secondary-text">
-                Supported formats: <strong>.pdf</strong>, <strong>.docx</strong> (max 50 MB)
+                Supported formats: <strong>.pdf</strong>, <strong>.docx</strong>, <strong>.png</strong>, <strong>.jpg</strong>, <strong>.jpeg</strong> (max 50 MB)
               </span>
             </div>
           )}

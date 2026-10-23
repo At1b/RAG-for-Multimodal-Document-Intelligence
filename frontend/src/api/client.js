@@ -82,9 +82,9 @@ export async function checkHealth() {
 }
 
 /**
- * Supported file extensions for document ingestion in Phase 6.
+ * Supported file extensions for document ingestion (Phase 10: PDF, DOCX, PNG, JPEG).
  */
-export const SUPPORTED_EXTENSIONS = ['.pdf', '.docx'];
+export const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.png', '.jpg', '.jpeg'];
 
 /**
  * Validate a file before attempting upload.
@@ -100,7 +100,7 @@ export function validateDocumentFile(file) {
   const lower = name.toLowerCase();
   const isSupported = SUPPORTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
   if (!isSupported) {
-    return 'Unsupported file format. Please upload a .pdf or .docx document.';
+    return 'Unsupported file format. Please upload a .pdf, .docx, .png, .jpg, or .jpeg document.';
   }
   return null;
 }
@@ -108,8 +108,8 @@ export function validateDocumentFile(file) {
 /**
  * Upload and index a document via POST /documents/upload.
  *
- * @param {File} file - PDF or DOCX file object.
- * @returns {Promise<{ document_id: string, document_name: string, num_pages: number, num_chunks: number }>}
+ * @param {File} file - PDF, DOCX, PNG, or JPEG file object.
+ * @returns {Promise<{ document_id: string, document_name: string, num_pages: number, num_chunks: number, ocr_pages?: number, ocr_failed_pages?: number[] }>}
  */
 export async function uploadDocument(file) {
   const clientValidation = validateDocumentFile(file);

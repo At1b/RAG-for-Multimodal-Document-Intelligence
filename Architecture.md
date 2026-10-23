@@ -251,19 +251,32 @@ Table Extraction
 Metadata
 ```
 
-## Image / Scanned PDF
+## Image / Scanned PDF (Phase 10 As-Built)
 
 ```text
-Image / Scan
- ↓
-OCR
- ↓
-Extracted Text
- ↓
-Page / Position Metadata
+Uploaded File (.pdf / .png / .jpg / .jpeg)
+  ↓
+Validation & MIME Detection (magic bytes + extension check)
+  ↓
+IngestionService Dispatch (optional OcrProcessor injected)
+  ↓
+PDF Loader:
+  - Pre-scan pages for needs_ocr (image coverage >= 30% AND native text < 25 chars)
+  - Native pages: extract digital text directly (extraction_method="native_text")
+  - Scanned pages: rasterize to grayscale PNG at OCR_DPI (default 300)
+Image Loader:
+  - Pillow: EXIF rotation normalization, grayscale conversion, decompression bomb guard
+  ↓
+OcrProcessor -> TesseractEngine:
+  - Isolated subprocess (tesseract stdin stdout -l <lang> --psm 3 tsv)
+  - Pure TSV parser: spatial layout grouping (blocks, pars, lines, words)
+  - Real mean confidence calculation (no fabricated metrics)
+  ↓
+Normalized Document & PageContent:
+  - Exact page provenance, extraction_method ("ocr" / "native_text"), confidence scores
 ```
 
-The implementation may later introduce specialized processors for tables, charts, and visual content.
+For full evaluation results, latency trade-offs, and failure matrix, see [docs/ocr.md](docs/ocr.md).
 
 ---
 
@@ -933,66 +946,52 @@ The following is the initial logical structure:
 MM-RAG/
 │
 ├── backend/
-│   ├── api/
-│   ├── services/
-│   └── main.py
+│   ├── main.py         # FastAPI app & health endpoints
+│   ├── documents.py    # Document upload & ingestion endpoint
+│   ├── query.py        # Query processing & generation endpoint
+│   ├── config.py       # Pydantic v2 application configuration
+│   └── requirements.txt
 │
 ├── rag/
-│   ├── ingestion/
-│   │   ├── loaders/
-│   │   └── validators/
+│   ├── ingestion/      # Document loaders (PDF, DOCX, Image)
+│   │   ├── ocr/        # Engine protocol, Tesseract adapter, TSV parser, page analysis
+│   │   ├── detection.py
+│   │   ├── validation.py
+│   │   └── service.py
 │   │
-│   ├── processing/
-│   │   ├── parsers/
-│   │   ├── ocr/
-│   │   ├── chunking/
-│   │   └── metadata/
-│   │
-│   ├── embeddings/
-│   │
-│   ├── retrieval/
-│   │   ├── semantic/
-│   │   ├── keyword/
-│   │   └── hybrid/
-│   │
-│   ├── reranking/
-│   │
-│   ├── generation/
-│   │
-│   └── citations/
+│   ├── chunking/       # Character & token text chunking
+│   ├── embeddings/     # Sentence-transformers embedding & ChromaDB store
+│   ├── retrieval/      # Dense vector, BM25 sparse, and hybrid RRF fusion
+│   ├── reranking/      # Cross-encoder semantic reranker (Sentence-Transformers)
+│   ├── generation/     # Ollama LLM integration & prompt orchestration
+│   └── citations/      # Verifiable source citation extraction & formatting
 │
-├── frontend/
-│
-├── evaluation/
-│
-├── tests/
-│
-├── docs/
+├── frontend/           # React + Vite web UI
+├── evaluation/         # Evaluation framework (retrieval & OCR benchmarks)
+├── tests/              # Test suite (unit, integration, pipeline, live)
+├── docs/               # System and module documentation (docs/ocr.md)
 │
 ├── README.md
 ├── PRD.md
 ├── LICENSE
-├── requirements.txt
-└── .gitignore
+└── pyproject.toml
 ```
-
-This structure is a proposed starting point and may be simplified or reorganized during implementation.
 
 ---
 
 # 30. Technology Decision Matrix
 
-The project should not select technologies solely because they are popular. Each major component should be evaluated.
+The project does not select technologies solely because they are popular. Each major component is evaluated against clear criteria.
 
-| Component | Candidate Options | Selection Criteria |
+| Component | Selected Technology | Selection Criteria & Verification |
 |---|---|---|
-| PDF Processing | PyMuPDF / Unstructured | Accuracy, speed, metadata |
-| OCR | Tesseract / PaddleOCR | Accuracy, speed, local resources |
-| Embeddings | Sentence Transformers / BGE | Retrieval quality, model size |
-| Vector Store | FAISS / Chroma / Qdrant | Performance, persistence, filtering |
-| Keyword Search | BM25 / equivalent | Exact-match retrieval |
-| Reranker | Cross-Encoder / BGE | Relevance improvement |
-| LLM | Local / API | Quality, cost, latency, hardware |
+| PDF Processing | PyMuPDF (fitz) | Fast rendering, exact bounding boxes, direct page pixmap extraction |
+| OCR | Tesseract 5 (UB-Mannheim via subprocess adapter) | Confirmed: 0.0000 CER on clean printed text, process isolation, offline, Apache-2.0 |
+| Embeddings | Sentence-Transformers (`all-MiniLM-L6-v2`) | Local, lightweight, fast CPU inference, 384-dimensional dense vectors |
+| Vector Store | ChromaDB | Persistent local storage, cosine distance, metadata filtering |
+| Keyword Search | BM25 (pure-Python implementation) | Token-based sparse keyword retrieval for exact entities; zero new dependencies |
+| Reranker | Sentence-Transformers (`cross-encoder/ms-marco-MiniLM-L-6-v2`) | Cross-encoder relevance scoring, CPU-practical (~80 MB model), zero new dependencies |
+| LLM | Ollama (`qwen2.5:0.5b-instruct`) | Local offline execution, verified prompt adherence, zero API cost |
 | Frontend | React | Usability and integration |
 | Backend | FastAPI | API performance and simplicity |
 

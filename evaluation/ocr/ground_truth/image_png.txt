@@ -1,0 +1,1 @@
+Direct image ingestion allows standalone graphics and photographs of text documents to enter the multi-modal retrieval pipeline. Images undergo preprocessing before optical character recognition.

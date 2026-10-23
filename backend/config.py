@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+import re
 from typing import Self
 from urllib.parse import urlparse
 
@@ -102,6 +103,35 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             "llm_context_max_chars", "llm_context_char_limit"
         ),
+    )
+    # Phase 10: OCR and Multimodal Ingestion
+    ocr_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("ocr_enabled", "OCR_ENABLED"),
+    )
+    ocr_language: str = Field(
+        default="eng",
+        validation_alias=AliasChoices("ocr_language", "OCR_LANGUAGE"),
+    )
+    ocr_dpi: int = Field(
+        default=300,
+        validation_alias=AliasChoices("ocr_dpi", "OCR_DPI"),
+    )
+    ocr_min_native_chars: int = Field(
+        default=25,
+        validation_alias=AliasChoices("ocr_min_native_chars", "OCR_MIN_NATIVE_CHARS"),
+    )
+    ocr_timeout_seconds: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices("ocr_timeout_seconds", "OCR_TIMEOUT_SECONDS"),
+    )
+    ocr_max_pages: int = Field(
+        default=50,
+        validation_alias=AliasChoices("ocr_max_pages", "OCR_MAX_PAGES"),
+    )
+    ocr_max_image_pixels: int = Field(
+        default=40_000_000,
+        validation_alias=AliasChoices("ocr_max_image_pixels", "OCR_MAX_IMAGE_PIXELS"),
     )
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
@@ -323,6 +353,78 @@ class Settings(BaseSettings):
             raise ValueError(f"llm_context_max_chars must be >= 100, got {v}")
         if v > 500_000:
             raise ValueError(f"llm_context_max_chars must be <= 500000, got {v}")
+        return v
+
+    # ------------------------------------------------------------------
+    # Phase 10: OCR validators
+    # ------------------------------------------------------------------
+
+    @field_validator("ocr_language")
+    @classmethod
+    def _ocr_language_valid(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("ocr_language must be a non-empty string")
+        v_clean = v.strip()
+        pattern = r"^[a-z]{3}(_[A-Za-z]+)?(\+[a-z]{3}(_[A-Za-z]+)?)*$"
+        if not re.match(pattern, v_clean):
+            raise ValueError(
+                f"ocr_language must match 3-letter codes joined by '+', got '{v_clean}'"
+            )
+        return v_clean
+
+    @field_validator("ocr_dpi")
+    @classmethod
+    def _ocr_dpi_valid(cls, v: int) -> int:
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(f"ocr_dpi must be an integer, got {type(v).__name__}")
+        if v < 72 or v > 600:
+            raise ValueError(f"ocr_dpi must be between 72 and 600, got {v}")
+        return v
+
+    @field_validator("ocr_min_native_chars")
+    @classmethod
+    def _ocr_min_native_chars_valid(cls, v: int) -> int:
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(
+                f"ocr_min_native_chars must be an integer, got {type(v).__name__}"
+            )
+        if v < 1 or v > 10_000:
+            raise ValueError(
+                f"ocr_min_native_chars must be between 1 and 10000, got {v}"
+            )
+        return v
+
+    @field_validator("ocr_timeout_seconds")
+    @classmethod
+    def _ocr_timeout_seconds_valid(cls, v: float) -> float:
+        if v <= 0.0 or v > 600.0:
+            raise ValueError(
+                f"ocr_timeout_seconds must be between 0 and 600 seconds, got {v}"
+            )
+        return v
+
+    @field_validator("ocr_max_pages")
+    @classmethod
+    def _ocr_max_pages_valid(cls, v: int) -> int:
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(
+                f"ocr_max_pages must be an integer, got {type(v).__name__}"
+            )
+        if v < 1 or v > 1000:
+            raise ValueError(f"ocr_max_pages must be between 1 and 1000, got {v}")
+        return v
+
+    @field_validator("ocr_max_image_pixels")
+    @classmethod
+    def _ocr_max_image_pixels_valid(cls, v: int) -> int:
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError(
+                f"ocr_max_image_pixels must be an integer, got {type(v).__name__}"
+            )
+        if v < 1_000_000 or v > 200_000_000:
+            raise ValueError(
+                f"ocr_max_image_pixels must be between 1000000 and 200000000, got {v}"
+            )
         return v
 
 

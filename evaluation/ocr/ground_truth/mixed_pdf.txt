@@ -1,0 +1,7 @@
+Native page one contains standard digital text extracted directly from the document stream without optical processing.
+
+Scanned page two requires optical character recognition due to the absence of an underlying digital text stream.
+
+Native page three provides another digital text section confirming that mixed-mode documents preserve original text streams.
+
+Scanned page four concludes the mixed-mode document demonstration with a second scanned page processed via optical recognition.

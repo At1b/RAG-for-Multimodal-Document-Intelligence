@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-**Phase 9 — Reranking (Cross-Encoder)**
+**Phase 10 — OCR and Multimodal Document Processing**
 
 Status: **COMPLETED (Hardened and Verified)**
 
@@ -577,6 +577,48 @@ Status: **COMPLETED (Hardened and Verified)**
   - Ruff check & format: 100% clean across all 81 repository files
   - Frontend lint & build: 100% clean (oxlint: 0 errors, 0 warnings; vite build: successful)
 
+### Phase 10 — OCR and Multimodal Document Processing (Completed)
+
+- **Architecture & Package**: Created `rag/ingestion/ocr/` module inside the ingestion layer:
+  - `OcrEngine` runtime-checkable protocol defining `recognize(image_bytes, language, timeout) -> OcrPageResult` and `version`.
+  - `TesseractEngine` adapter executing `tesseract stdin stdout -l <lang> --psm 3 tsv` via isolated `subprocess.run` (no shell). Uses Windows `CREATE_NO_WINDOW`, stdin PNG byte piping, explicit UTF-8 decode, and hard process killing on timeout.
+  - `parse_tsv_to_text`: Pure function grouping words by `(block_num, par_num, line_num, word_num)`, sorting spatially, skipping non-word entries (`conf == -1`) and calculating real mean confidence.
+  - `needs_ocr`: Pure page analysis heuristic triggering OCR only when image coverage >= 30% (`_MIN_IMAGE_COVERAGE = 0.30`) AND native non-whitespace characters < 25 (`OCR_MIN_NATIVE_CHARS`).
+  - `OcrProcessor`: Ingested into `pdf_loader.py` and `image_loader.py`, enforcing rendering limits (`OCR_MAX_IMAGE_PIXELS`, `OCR_TIMEOUT_SECONDS`, `OCR_DPI`).
+- **Loaders & Ingestion Dispatch**:
+  - `pdf_loader.py`: Pre-scans document OCR requirements against `OCR_MAX_PAGES`. In mixed-mode PDFs, native pages retain digital text stream (`extraction_method="native_text"`), while scanned pages undergo OCR (`extraction_method="ocr"`).
+  - `image_loader.py`: Ingests standalone `.png`, `.jpg`, `.jpeg` images. Handles EXIF orientation transposition, grayscale conversion, and Pillow decompression-bomb guards (`DecompressionBombError` mapped to `OcrLimitExceededError`).
+  - `detection.py` and `validation.py`: Extended to support PNG (`\x89PNG`) and JPEG (`\xff\xd8\xff`) magic bytes and extensions.
+  - `IngestionService`: Injects optional `OcrProcessor` into PDF and image loaders.
+- **Error Handling & Outcome Rules**:
+  - `OcrUnavailableError` (503): Raised when Tesseract or language data is missing.
+  - `NoExtractableTextError` (422): Raised when all OCR pages fail or return zero alphanumeric characters.
+  - `OcrLimitExceededError` (422): Raised when OCR page budget or image pixel limit is exceeded.
+  - `InvalidDocumentError` (422): Raised on corrupt or truncated images.
+  - Preserved legacy HTTP 500 behavior for non-OCR blank documents yielding zero chunks.
+  - Partial failure tolerance: If at least one page is usable, the document is indexed and failed pages are tracked in `ocr_failed_pages`.
+- **API & Concurrency**:
+  - `POST /documents/upload` wrapped in `run_in_threadpool` to prevent synchronous OCR and embedding operations from blocking the FastAPI event loop.
+  - Response models augmented with additive `ocr_pages` and `ocr_failed_pages` fields.
+- **Frontend**:
+  - Minimal update to `frontend/src/api/client.js` and `frontend/src/components/DocumentUpload.jsx` adding `.png, .jpg, .jpeg` file extensions and helper text.
+- **Evaluation & Benchmarks (`evaluation/ocr_eval.py` & `docs/ocr.md`, Evaluated 2026-10-23)**:
+  - Real Levenshtein edit distance CER and WER benchmarks on 10 synthetic fixtures (with explicit caveat that synthetic fixtures establish engine baselines but do not establish real-world scan accuracy):
+    - 0.0000 CER and 0.0000 WER across all 8 standard printed text fixtures (including degraded 150 DPI JPEG at q=35).
+    - Macro CER: 0.0333 (0.1667 on tables due to missing Markdown pipe delimiters; 100% token-presence match rate, `token_presence_rate = 1.0`).
+    - Macro WER: 0.0762.
+  - Per-page latency (clean_single, 5 trials):
+    - Native digital text: 0.14 ms mean (0.11 ms median).
+    - OCR 200 DPI: 427.16 ms mean (Render: 96.83 ms, Engine: 330.32 ms; Median: 428.04 ms).
+    - OCR 300 DPI: 787.98 ms mean (Render: 242.42 ms, Engine: 545.55 ms; Median: 790.72 ms).
+    - 200 DPI provides a 1.84x speedup over 300 DPI with equivalent accuracy on printed text.
+  - Table assessment: PSM 3 and PSM 4 preserve 100% of tokens across all 4 rows on distinct lines (`token_presence_rate = 1.0`); PSM 6 fails on ruled tables; word gap heuristic not adopted.
+- **Testing & Verification**:
+  - 99 new Phase 10 tests across unit, integration, pipeline, regression, and live suites (including regression tests for empty OCR page handling, custom thresholds, deduplicated image xrefs, and EXIF transposition).
+  - Full test suite: 919/919 passed (0 regressions, 0 failures).
+  - Ruff check & format: 100% clean.
+  - Frontend lint & build: 100% clean (oxlint: 0 errors, 0 warnings; vite build: successful).
+
 ---
 
 ## Technology Stack (Implemented)
@@ -589,6 +631,8 @@ Status: **COMPLETED (Hardened and Verified)**
 | Configuration | pydantic-settings | 2.15.x |
 | PDF Processing | PyMuPDF | 1.28.x |
 | DOCX Processing | python-docx | 1.2.x |
+| Image Processing | Pillow | 13.0.x |
+| OCR Engine | Tesseract OCR (UB-Mannheim CLI) | 5.5.3 |
 | File Upload | python-multipart | 0.0.32 |
 | Embeddings | sentence-transformers | 6.0.x |
 | Embedding Model | all-MiniLM-L6-v2 | — |
@@ -704,6 +748,18 @@ Status: **COMPLETED (Hardened and Verified)**
 | Compositional RerankingRetriever | Wraps any Retriever ABC instance (semantic, keyword, hybrid) with Reranker, keeping retrievers independently usable |
 | Candidate-depth vs final-K bounds | Enforces candidate_top_k in [1, 1000] and expands candidate pool if top_k > candidate_top_k |
 | RERANKER_ENABLED=false default | Empirically grounded default (Semantic precision already 95.83% and MRR 1.0; reranker adds ~20ms overhead); keeps reranking strictly opt-in |
+| Tesseract 5 via subprocess adapter (D1) | UB-Mannheim CLI with stdin PNG piping and stdout TSV capture; provides hard timeout, process isolation, real confidence scores, Apache-2.0 license, and zero heavy Python OCR dependencies |
+| Preserve HTTP 500 for non-OCR blank docs (D2) | Preserves existing contract for blank digital documents (0 chunks) while raising precise 422 NoExtractableTextError when OCR was active |
+| run_in_threadpool for upload endpoint (D3) | Offloads blocking ingestion, OCR, and embedding operations to Starlette threadpool, keeping the FastAPI event loop responsive |
+| Minimal frontend file upload extension (D4) | Extends SUPPORTED_EXTENSIONS with .png, .jpg, .jpeg in client and upload component without changing layout |
+| source_type="image" for direct image uploads (D5) | Provides clean type discriminator for standalone graphics and camera captures |
+| Dual-condition scanned page heuristic | Triggers OCR only when image coverage >= 30% and native text < 25 chars; prevents false triggers on blank or sparse digital pages |
+| Document-level OCR outcome policy | Hard fail (503) if engine/language is missing; fail (422) if all OCR pages yield no text; partial success if >= 1 page is usable |
+| Word gap heuristic not adopted | Standard PSM 3 space separation retained after empirical evaluation showed gap heuristic did not reliably improve row readability |
+| OCR_MIN_NATIVE_CHARS propagation (H1) | Threaded ocr_min_native_chars from backend settings through OcrProcessor to load_pdf/needs_ocr |
+| Evaluation standalone execution (H2) | Added repository root path insertion in evaluation/ocr_eval.py for direct script execution |
+| XREF deduplication in coverage (H3) | Deduplicated image xrefs in calculate_image_coverage to prevent over-counting re-used page images |
+| EXIF-transposed image dimensions (H4) | Recorded target image dimensions post-EXIF transposition in ImageLoader doc_metadata |
 
 ---
 
@@ -715,17 +771,19 @@ Status: **COMPLETED (Hardened and Verified)**
 
 ## Known Limitations
 
-- Baseline limitations observed in Phase 6, Phase 7, Phase 8 & Phase 9:
+- Baseline limitations observed in Phase 6 through Phase 10:
   - Single-turn baseline only (no conversation history or chat memory)
   - Retrieval supports `semantic`, `keyword`, and `hybrid` modes via configuration (`RETRIEVAL_MODE`), with optional cross-encoder reranking (`RERANKER_ENABLED=true`, candidate top-K reranked via `cross-encoder/ms-marco-MiniLM-L-6-v2`)
   - Multi-document retrieval occurs across a shared flat vector space without document filtering or provenance grouping
   - LLM generation relies on local Ollama availability; cold-start or low-spec CPU inference may experience latency
   - Reranker runs on local CPU; model load takes ~6.8s on cold start, warm reranking adds ~20ms latency per query
   - `RETRIEVAL_MIN_SCORE = 0.30` is an empirically chosen Phase 6 baseline heuristic measured on `all-MiniLM-L6-v2` and `sample_ai_overview.pdf`, not a universally valid semantic threshold across all domains, models, or languages. Must be rigorously re-evaluated in Phase 11 evaluation framework.
-- Frontend is a simple functional MVP for the baseline API (PDF/DOCX upload, grounded question answering, and citations display); multi-doc selection, filtering UI, and conversation history deferred to later phases
-
-- OCR is not implemented (deferred to Phase 10)
-- Scanned PDFs will extract no text (text extraction only, no image-based OCR)
+- OCR & Multimodal processing limitations (Phase 10):
+  - Tesseract 5 OCR processes English printed text reliably (0.0000 CER on clean synthetic fixtures); degraded scans and non-English scripts require corresponding `*.traineddata` and may exhibit higher error rates
+  - OCR extraction runs on CPU (358ms per page at 200 DPI, 681ms at 300 DPI); large document scans are bounded by `OCR_MAX_PAGES=50` and `OCR_TIMEOUT_SECONDS=60.0`
+  - Tables in scanned documents extract as space-separated text within preserved rows; structured table retrieval and column cell semantics remain future scope
+  - Standalone graphics and scanned pages only; no visual question answering (VQA), vision-language models, chart understanding, or image embeddings (deliberately excluded from Phase 10 scope)
+- Frontend is a simple functional MVP for the baseline API (PDF/DOCX/image upload, grounded question answering, and citations display); multi-doc selection, filtering UI, and conversation history deferred to later phases
 - DOCX does not preserve native physical page boundaries (entire content as single logical page `page_number=1`)
 - Tables in DOCX are extracted as pipe-separated plain text
 - No document persistence/storage — in-memory processing only
@@ -739,7 +797,6 @@ Status: **COMPLETED (Hardened and Verified)**
 
 ## Not Started
 
-- OCR and multimodal processing (Phase 10)
 - Evaluation framework (Phase 11)
 - Optimization and reliability (Phase 12)
 - Frontend and full integration (Phase 13)
@@ -749,9 +806,8 @@ Status: **COMPLETED (Hardened and Verified)**
 
 ## Next Immediate Tasks
 
-1. Review and merge Phase 9 (`feat/phase-9-reranking`) into develop
-2. Begin Phase 10 — OCR and multimodal processing (PyMuPDF / OCR / Vision)
+1. Begin Phase 11 — Quantitative RAG Evaluation Framework (RAG Triad, Hit Rate, MRR)
 
 ---
 
-Last Updated: 2026-10-19
+Last Updated: 2026-10-22

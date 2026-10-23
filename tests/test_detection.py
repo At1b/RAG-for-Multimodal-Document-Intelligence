@@ -86,3 +86,48 @@ def test_missing_file_raises_filenotfound(tmp_path: Path):
 
     with pytest.raises(FileNotFoundError):
         detect_format(tmp_path / "nonexistent.pdf")
+
+
+def test_detect_png(tmp_path: Path):
+    """A file with PNG magic bytes is detected as PNG."""
+    png = tmp_path / "test.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n image data")
+    assert detect_format(png) == FileFormat.PNG
+
+
+def test_detect_jpeg(tmp_path: Path):
+    """A file with JPEG magic bytes is detected as JPEG for .jpg and .jpeg."""
+    jpg = tmp_path / "photo.jpg"
+    jpg.write_bytes(b"\xff\xd8\xff\xe0 image data")
+    assert detect_format(jpg) == FileFormat.JPEG
+
+    jpeg = tmp_path / "photo.jpeg"
+    jpeg.write_bytes(b"\xff\xd8\xff\xe1 image data")
+    assert detect_format(jpeg) == FileFormat.JPEG
+
+
+def test_png_extension_wrong_magic_raises(tmp_path: Path):
+    """A .png file without PNG signature is rejected."""
+    fake_png = tmp_path / "fake.png"
+    fake_png.write_bytes(b"not a real png")
+    with pytest.raises(UnsupportedFormatError):
+        detect_format(fake_png)
+
+
+def test_jpeg_extension_wrong_magic_raises(tmp_path: Path):
+    """A .jpg file without JPEG signature is rejected."""
+    fake_jpg = tmp_path / "fake.jpg"
+    fake_jpg.write_bytes(b"not a real jpeg")
+    with pytest.raises(UnsupportedFormatError):
+        detect_format(fake_jpg)
+
+
+def test_image_case_insensitive_detection(tmp_path: Path):
+    """Uppercase extensions like .PNG and .JPG are properly detected."""
+    upper_png = tmp_path / "IMAGE.PNG"
+    upper_png.write_bytes(b"\x89PNG\r\n\x1a\n data")
+    assert detect_format(upper_png) == FileFormat.PNG
+
+    upper_jpg = tmp_path / "PHOTO.JPG"
+    upper_jpg.write_bytes(b"\xff\xd8\xff data")
+    assert detect_format(upper_jpg) == FileFormat.JPEG

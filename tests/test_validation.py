@@ -27,6 +27,21 @@ def test_valid_docx_passes(tmp_path: Path):
     validate_file(docx)  # should not raise
 
 
+def test_valid_images_pass(tmp_path: Path):
+    """Valid image files (.png, .jpg, .jpeg) pass extension validation."""
+    png = tmp_path / "test.png"
+    png.write_bytes(b"png data")
+    validate_file(png)
+
+    jpg = tmp_path / "test.jpg"
+    jpg.write_bytes(b"jpg data")
+    validate_file(jpg)
+
+    jpeg = tmp_path / "test.jpeg"
+    jpeg.write_bytes(b"jpeg data")
+    validate_file(jpeg)
+
+
 def test_missing_file_raises(tmp_path: Path):
     """A non-existent file raises FileNotFoundError."""
     missing = tmp_path / "nonexistent.pdf"

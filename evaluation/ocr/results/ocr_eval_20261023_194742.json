@@ -1,0 +1,384 @@
+{
+  "metadata": {
+    "timestamp": "20261023_194742",
+    "engine": "tesseract",
+    "tesseract_version": "tesseract v5.5.3.20260724",
+    "pymupdf_version": "1.28.2",
+    "platform": "Windows 11 (AMD64)",
+    "python_version": "3.14.6"
+  },
+  "dpi_evaluations": {
+    "200": {
+      "fixtures": {
+        "clean_single": {
+          "file": "clean_single.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 334.1,
+          "num_pages": 1,
+          "char_count_ref": 257,
+          "char_count_hyp": 257
+        },
+        "multi_paragraph": {
+          "file": "multi_paragraph.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 421.24,
+          "num_pages": 1,
+          "char_count_ref": 554,
+          "char_count_hyp": 554
+        },
+        "headings_punct": {
+          "file": "headings_punct.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 343.31,
+          "num_pages": 1,
+          "char_count_ref": 311,
+          "char_count_hyp": 314
+        },
+        "scan_pdf_3page": {
+          "file": "scan_pdf_3page.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 853.95,
+          "num_pages": 3,
+          "char_count_ref": 533,
+          "char_count_hyp": 533
+        },
+        "mixed_pdf": {
+          "file": "mixed_pdf.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 580.96,
+          "num_pages": 4,
+          "char_count_ref": 487,
+          "char_count_hyp": 489
+        },
+        "image_png": {
+          "file": "image_png.png",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 260.44,
+          "num_pages": 1,
+          "char_count_ref": 195,
+          "char_count_hyp": 195
+        },
+        "image_jpg": {
+          "file": "image_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 249.95,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "degraded_jpg": {
+          "file": "degraded_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 223.66,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "table_simple": {
+          "file": "table_simple.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 291.65,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 80
+        },
+        "table_borderless": {
+          "file": "table_borderless.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 273.09,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 81
+        }
+      },
+      "macro_cer": 0.0333,
+      "macro_wer": 0.0762
+    },
+    "300": {
+      "fixtures": {
+        "clean_single": {
+          "file": "clean_single.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 568.59,
+          "num_pages": 1,
+          "char_count_ref": 257,
+          "char_count_hyp": 257
+        },
+        "multi_paragraph": {
+          "file": "multi_paragraph.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 652.98,
+          "num_pages": 1,
+          "char_count_ref": 554,
+          "char_count_hyp": 554
+        },
+        "headings_punct": {
+          "file": "headings_punct.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 588.51,
+          "num_pages": 1,
+          "char_count_ref": 311,
+          "char_count_hyp": 314
+        },
+        "scan_pdf_3page": {
+          "file": "scan_pdf_3page.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 1597.72,
+          "num_pages": 3,
+          "char_count_ref": 533,
+          "char_count_hyp": 533
+        },
+        "mixed_pdf": {
+          "file": "mixed_pdf.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 973.89,
+          "num_pages": 4,
+          "char_count_ref": 487,
+          "char_count_hyp": 489
+        },
+        "image_png": {
+          "file": "image_png.png",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 242.19,
+          "num_pages": 1,
+          "char_count_ref": 195,
+          "char_count_hyp": 195
+        },
+        "image_jpg": {
+          "file": "image_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 241.17,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "degraded_jpg": {
+          "file": "degraded_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 213.88,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "table_simple": {
+          "file": "table_simple.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 482.14,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 80
+        },
+        "table_borderless": {
+          "file": "table_borderless.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 456.81,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 81
+        }
+      },
+      "macro_cer": 0.0333,
+      "macro_wer": 0.0762
+    }
+  },
+  "timing_benchmark": {
+    "repetitions": 5,
+    "native": {
+      "mean_ms": 0.14,
+      "median_ms": 0.11,
+      "min_ms": 0.1,
+      "max_ms": 0.26
+    },
+    "ocr_200_dpi": {
+      "render": {
+        "mean_ms": 96.83,
+        "median_ms": 95.85,
+        "min_ms": 90.77,
+        "max_ms": 105.58
+      },
+      "engine": {
+        "mean_ms": 330.32,
+        "median_ms": 329.03,
+        "min_ms": 324.71,
+        "max_ms": 339.35
+      },
+      "total": {
+        "mean_ms": 427.16,
+        "median_ms": 428.04,
+        "min_ms": 418.7,
+        "max_ms": 433.89
+      }
+    },
+    "ocr_300_dpi": {
+      "render": {
+        "mean_ms": 242.42,
+        "median_ms": 254.41,
+        "min_ms": 194.53,
+        "max_ms": 275.67
+      },
+      "engine": {
+        "mean_ms": 545.55,
+        "median_ms": 543.89,
+        "min_ms": 528.13,
+        "max_ms": 569.24
+      },
+      "total": {
+        "mean_ms": 787.98,
+        "median_ms": 790.72,
+        "min_ms": 756.42,
+        "max_ms": 819.56
+      }
+    }
+  },
+  "table_assessment": {
+    "table_simple": {
+      "psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "token_presence_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_4": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "token_presence_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_6": {
+        "cer": 1.0,
+        "wer": 1.0,
+        "token_presence_rate": 0.0,
+        "four_rows_preserved": false,
+        "sample_output": []
+      },
+      "gap_heuristic_psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      }
+    },
+    "table_borderless": {
+      "psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "token_presence_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_4": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "token_presence_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_6": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "token_presence_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "gap_heuristic_psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      }
+    }
+  }
+}

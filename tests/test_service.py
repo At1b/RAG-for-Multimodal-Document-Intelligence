@@ -144,3 +144,31 @@ def test_ingest_corrupted_file_raises(tmp_path: Path):
     service = IngestionService()
     with pytest.raises(InvalidDocumentError):
         service.ingest(bad_pdf)
+
+
+def test_ingest_image_with_ocr_processor(tmp_path: Path):
+    """IngestionService correctly dispatches PNG to load_image with OCR."""
+    from PIL import Image
+
+    from rag.ingestion.ocr.engine import OcrPageResult
+    from rag.ingestion.ocr.processor import OcrProcessor
+
+    class SimpleFakeEngine:
+        @property
+        def version(self) -> str:
+            return "Fake 1.0"
+
+        def recognize(self, image_bytes, *, language="eng", timeout=60.0):
+            return OcrPageResult("Ingested Image Content", 95.0)
+
+    png_path = tmp_path / "scan.png"
+    img = Image.new("RGB", (100, 100), color=(255, 255, 255))
+    img.save(png_path, format="PNG")
+
+    processor = OcrProcessor(engine=SimpleFakeEngine())
+    service = IngestionService(ocr_processor=processor)
+    doc = service.ingest(png_path)
+
+    assert doc.source_type == "image"
+    assert doc.pages[0].content == "Ingested Image Content"
+    assert doc.pages[0].metadata["extraction_method"] == "ocr"

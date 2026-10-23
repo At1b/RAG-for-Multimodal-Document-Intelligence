@@ -8,17 +8,17 @@
 
 MM-RAG is a modular RAG pipeline built from scratch as a final-year ROSP/open-source project. It processes heterogeneous documents (PDF, DOCX, images, scanned documents), indexes their content, retrieves relevant information for user queries, and generates evidence-grounded answers with source citations.
 
-**Current Status:** Phase 0 — Project Foundation (under active development)
+**Current Status:** Phase 10 — OCR and Multimodal Document Processing (Completed)
 
 ## Architecture
 
 ```text
-Document Upload → Processing → Chunking → Embeddings → Vector Store
-                                                            ↓
-User Question → Query Processing → Hybrid Retrieval → Reranking → LLM → Answer + Citations
+Document Upload (PDF / DOCX / Images) → Ingestion & OCR → Chunking → Embeddings → Vector Store
+                                                                                        ↓
+User Question → Query Processing → Hybrid Retrieval (Vector + BM25) → Reranking → LLM → Answer + Citations
 ```
 
-For the full architecture, see [Architecture.md](Architecture.md).
+For the full architecture, see [Architecture.md](Architecture.md) and [docs/ocr.md](docs/ocr.md).
 
 ## Repository Structure
 
@@ -39,14 +39,24 @@ MM-RAG/
 │   ├── __init__.py
 │   ├── main.py         # Entry point + health endpoint
 │   ├── config.py       # Environment configuration
+│   ├── documents.py    # Document upload & ingestion endpoint
+│   ├── query.py        # Query & RAG generation endpoint
 │   └── requirements.txt
 │
 ├── frontend/           # React frontend (Vite)
 │
-├── rag/                # RAG pipeline modules (future)
-├── evaluation/         # Evaluation framework (future)
-├── tests/              # Test suite
-├── docs/               # Additional documentation
+├── rag/                # RAG pipeline modules
+│   ├── ingestion/      # Document loaders (PDF, DOCX, Image) and OCR engine
+│   ├── chunking/       # Character & token text chunking
+│   ├── embeddings/     # Sentence-transformers embedding & ChromaDB indexing
+│   ├── retrieval/      # Dense vector, BM25 sparse, and hybrid reciprocal rank fusion
+│   ├── reranking/      # Cross-encoder semantic reranking
+│   ├── generation/     # Ollama LLM client and prompt orchestration
+│   └── citations/      # Verifiable source citation extraction & formatting
+│
+├── evaluation/         # Evaluation framework (retrieval & OCR benchmarks)
+├── tests/              # Test suite (919 tests)
+├── docs/               # Technical documentation (docs/ocr.md)
 └── .github/workflows/  # CI pipeline
 ```
 
@@ -58,6 +68,34 @@ MM-RAG/
 - Node.js 20+
 - Git
 - [Ollama](https://ollama.com/download) (for LLM generation)
+- [Tesseract OCR 5.x](https://github.com/UB-Mannheim/tesseract/wiki) (for scanned PDFs and images)
+
+### OCR Setup (Tesseract 5)
+
+MM-RAG uses Tesseract 5 via subprocess execution for scanned PDF pages and standalone image uploads (`.png`, `.jpg`, `.jpeg`).
+
+#### Windows Installation:
+Install the UB-Mannheim Tesseract OCR package via Winget or direct installer:
+```powershell
+winget install UB-Mannheim.TesseractOCR
+```
+Ensure English (`eng`) language data is selected. Verify installation:
+```powershell
+tesseract --version
+tesseract --list-langs
+```
+If Tesseract is installed to the default directory (`C:\Program Files\Tesseract-OCR\tesseract.exe`), the backend will detect it automatically even if not added to the system `PATH`.
+
+Configurable parameters in `.env`:
+- `OCR_ENABLED` (default: `true`)
+- `OCR_LANGUAGE` (default: `eng`)
+- `OCR_DPI` (default: `300`; set to `200` for 1.9x faster ingestion with equivalent printed accuracy)
+- `OCR_MIN_NATIVE_CHARS` (default: `25`)
+- `OCR_TIMEOUT_SECONDS` (default: `60.0`)
+- `OCR_MAX_PAGES` (default: `50`)
+- `OCR_MAX_IMAGE_PIXELS` (default: `40000000`)
+
+For detailed architecture, DPI benchmarks, and failure policies, see [docs/ocr.md](docs/ocr.md).
 
 ### Backend Setup
 
@@ -102,7 +140,7 @@ ollama pull qwen2.5:0.5b-instruct
 Ollama runs on `http://localhost:11434` by default. You can change this in your `.env` file via `LLM_BASE_URL`.
 
 Configurable parameters in `.env`:
-- `LLM_MODEL` (default: `qwen2.5:0.5b-instruct`; note: `tinyllama` failed Phase 6 runtime acceptance due to prompt-echoing limitations)
+- `LLM_MODEL` (default: `qwen2.5:0.5b-instruct`)
 - `LLM_BASE_URL` (default: `http://localhost:11434`)
 - `LLM_TEMPERATURE` (default: `0.1`)
 - `LLM_MAX_TOKENS` (default: `512`)
@@ -123,18 +161,20 @@ npm run dev
 |---|---|
 | `uvicorn backend.main:app --reload` | Start backend dev server |
 | `cd frontend && npm run dev` | Start frontend dev server |
-| `pytest tests/ -v` | Run tests |
-| `ruff check backend/ rag/ tests/` | Lint Python code |
-| `ruff format backend/ rag/ tests/` | Format Python code |
+| `pytest tests/ -v` | Run full test suite |
+| `pytest tests/ -m "not ocr_live"` | Run tests excluding live OCR engine |
+| `python -m evaluation.ocr_eval` | Run OCR CER/WER and latency evaluation |
+| `ruff check .` | Lint Python codebase |
+| `ruff format --check .` | Check Python code formatting |
 
 ## Testing
 
 ```bash
-# Install test dependencies
-pip install pytest httpx
-
 # Run all tests
 pytest tests/ -v
+
+# Run with coverage
+pytest --cov=rag --cov=backend tests/
 ```
 
 ## Documentation
@@ -144,27 +184,33 @@ pytest tests/ -v
 - [Rules.md](Rules.md) — Development and coding rules
 - [Phases.md](Phases.md) — Implementation roadmap
 - [Memory.md](Memory.md) — Current project state
+- [docs/ocr.md](docs/ocr.md) — OCR architecture, evaluation metrics, and benchmarks
 
 ## Current Phase
 
-**Phase 0 — Project Foundation**
+**Phase 10 — OCR & Multimodal Document Processing (Completed)**
 
-The project is establishing its development foundation. RAG pipeline features (document ingestion, embeddings, retrieval, generation) will be implemented in subsequent phases.
+The pipeline processes native and scanned documents (PDF, DOCX, PNG, JPEG), chunks content with exact page provenance, embeds into ChromaDB, executes hybrid retrieval with cross-encoder reranking, and generates grounded answers with verifiable citations.
 
-## Planned Features
+## Implemented Features
 
-> ⚠️ The following features are **planned** and not yet implemented.
+- [x] PDF and DOCX digital document ingestion
+- [x] Tesseract 5 OCR for scanned PDF pages and standalone image files (`.png`, `.jpg`, `.jpeg`)
+- [x] Mixed-mode PDF processing (digital text layer preserved, scanned pages OCR'd)
+- [x] Recursive character chunking with provenance preservation
+- [x] Local Sentence-Transformers embeddings (`all-MiniLM-L6-v2`)
+- [x] ChromaDB persistent vector storage with cosine similarity search
+- [x] Pure-Python BM25 keyword search and Reciprocal Rank Fusion (RRF) hybrid retrieval
+- [x] Sentence-Transformers cross-encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`)
+- [x] Relevance gating to suppress hallucination on out-of-context queries
+- [x] Ollama local LLM integration (`qwen2.5:0.5b-instruct`)
+- [x] Verifiable source citation formatting (`[Doc, p. X]`)
+- [x] End-to-end React web UI with document upload and grounded chat
 
-- PDF/DOCX document ingestion
-- OCR for scanned documents and images
-- Document chunking with metadata preservation
-- Embedding generation
-- Vector-based semantic search
-- Keyword/hybrid retrieval
-- Reranking
-- LLM-based answer generation
-- Source citations
-- Evaluation framework
+## Planned Features (Upcoming Phases)
+
+- [ ] Phase 11 — Quantitative RAG Evaluation Framework (RAG Triad, Hit Rate, MRR)
+- [ ] Phase 12 — Final Polish, Hardening, and Deployment Packaging
 
 ## License
 
