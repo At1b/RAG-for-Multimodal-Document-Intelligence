@@ -1,0 +1,1 @@
+Document intelligence enables automated extraction and comprehension of content from diverse file formats. Modern retrieval-augmented generation systems integrate multimodal components to process both native text layers and scanned document images reliably.

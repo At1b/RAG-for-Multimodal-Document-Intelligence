@@ -29,3 +29,19 @@ class InvalidDocumentError(IngestionError):
 
 class FileTooLargeError(IngestionError):
     """The file exceeds the configured maximum upload size."""
+
+
+class OcrUnavailableError(IngestionError):
+    """OCR is required but unavailable (disabled, uninstalled, or language missing)."""
+
+
+class OcrPageError(IngestionError):
+    """Internal error during OCR processing of an individual page."""
+
+
+class NoExtractableTextError(InvalidDocumentError):
+    """No readable text could be extracted from a document requiring OCR."""
+
+
+class OcrLimitExceededError(InvalidDocumentError):
+    """Document exceeds configured OCR resource bounds (page count or pixel limits)."""

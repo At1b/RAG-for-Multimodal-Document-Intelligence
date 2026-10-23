@@ -14,6 +14,8 @@ from rag.ingestion.exceptions import FileNotFoundError, UnsupportedFormatError
 # Magic-byte signatures used to verify file content.
 _PDF_MAGIC = b"%PDF"
 _ZIP_MAGIC = b"PK\x03\x04"  # DOCX is a ZIP archive (OOXML)
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_JPEG_MAGIC = b"\xff\xd8\xff"
 
 
 class FileFormat(enum.Enum):
@@ -21,12 +23,17 @@ class FileFormat(enum.Enum):
 
     PDF = "pdf"
     DOCX = "docx"
+    PNG = "png"
+    JPEG = "jpeg"
 
 
 # Map of lowercase extensions to formats.
 _EXTENSION_MAP: dict[str, FileFormat] = {
     ".pdf": FileFormat.PDF,
     ".docx": FileFormat.DOCX,
+    ".png": FileFormat.PNG,
+    ".jpg": FileFormat.JPEG,
+    ".jpeg": FileFormat.JPEG,
 }
 
 
@@ -53,6 +60,10 @@ def detect_format(file_path: Path) -> FileFormat:
         # ZIP could be many things — only accept as DOCX when the
         # extension confirms the intent.
         return FileFormat.DOCX
+    if magic.startswith(_PNG_MAGIC) and ext == ".png":
+        return FileFormat.PNG
+    if magic.startswith(_JPEG_MAGIC) and ext in (".jpg", ".jpeg"):
+        return FileFormat.JPEG
 
     # Fall through: extension didn't match any known magic pattern.
     if ext in _EXTENSION_MAP:

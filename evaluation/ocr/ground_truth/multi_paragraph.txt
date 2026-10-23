@@ -1,0 +1,5 @@
+The retrieval pipeline begins by indexing chunked representations into a vector store. Each chunk maintains explicit provenance including document identity and page numbers.
+
+When queries arrive at the system, hybrid retrieval combines dense vector embeddings with sparse keyword matching. Reciprocal rank fusion merges the ranked candidates into an initial candidate set.
+
+Cross-encoder reranking provides fine-grained relevance scoring across the candidate pool. The top-ranked passages are presented to the generation engine with verifiable citations.

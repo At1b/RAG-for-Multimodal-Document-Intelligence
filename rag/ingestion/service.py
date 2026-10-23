@@ -11,7 +11,9 @@ from pathlib import Path
 
 from rag.ingestion.detection import FileFormat, detect_format
 from rag.ingestion.docx_loader import load_docx
+from rag.ingestion.image_loader import load_image
 from rag.ingestion.models import Document
+from rag.ingestion.ocr.processor import OcrProcessor
 from rag.ingestion.pdf_loader import load_pdf
 from rag.ingestion.validation import validate_file
 
@@ -21,6 +23,8 @@ logger = logging.getLogger(__name__)
 _LOADERS = {
     FileFormat.PDF: load_pdf,
     FileFormat.DOCX: load_docx,
+    FileFormat.PNG: load_image,
+    FileFormat.JPEG: load_image,
 }
 
 
@@ -33,8 +37,14 @@ class IngestionService:
         document = service.ingest(Path("report.pdf"), "report.pdf")
     """
 
-    def __init__(self, *, max_size_bytes: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_size_bytes: int | None = None,
+        ocr_processor: OcrProcessor | None = None,
+    ) -> None:
         self.max_size_bytes = max_size_bytes
+        self._ocr = ocr_processor
 
     def ingest(
         self,
@@ -57,6 +67,9 @@ class IngestionService:
             FileTooLargeError: File exceeds the configured limit.
             UnsupportedFormatError: Format is not supported.
             InvalidDocumentError: File is corrupted or unreadable.
+            NoExtractableTextError: OCR yielded no extractable text.
+            OcrLimitExceededError: OCR limits exceeded.
+            OcrUnavailableError: OCR required but unavailable.
         """
         file_path = Path(file_path)
         display_name = original_filename or file_path.name
@@ -70,9 +83,13 @@ class IngestionService:
         fmt = detect_format(file_path)
         logger.info("Detected format: %s", fmt.value)
 
-        # 3. Load
-        loader = _LOADERS[fmt]
-        document = loader(file_path, document_name=display_name)
+        # 3. Load with appropriate loader arguments
+        if fmt == FileFormat.DOCX:
+            document = load_docx(file_path, document_name=display_name)
+        elif fmt == FileFormat.PDF:
+            document = load_pdf(file_path, document_name=display_name, ocr=self._ocr)
+        else:
+            document = load_image(file_path, document_name=display_name, ocr=self._ocr)
 
         logger.info(
             "Ingested '%s': id=%s, pages=%d",

@@ -682,14 +682,14 @@ Retrieval
 
 ## Tasks
 
-- [ ] Select OCR library/tool.
-- [ ] Implement OCR processor.
-- [ ] Support scanned PDF pages.
-- [ ] Preserve page metadata.
-- [ ] Handle OCR failures.
-- [ ] Evaluate OCR quality.
-- [ ] Add image-document tests.
-- [ ] Evaluate table extraction where practical.
+- [x] Select OCR library/tool.
+- [x] Implement OCR processor.
+- [x] Support scanned PDF pages.
+- [x] Preserve page metadata.
+- [x] Handle OCR failures.
+- [x] Evaluate OCR quality.
+- [x] Add image-document tests.
+- [x] Evaluate table extraction where practical.
 
 ## Future Scope
 

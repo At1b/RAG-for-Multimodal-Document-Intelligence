@@ -15,7 +15,9 @@ from rag.ingestion.exceptions import (
 )
 
 # Extensions accepted by the ingestion pipeline.
-_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".docx"})
+_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
+    {".pdf", ".docx", ".png", ".jpg", ".jpeg"}
+)
 
 
 def validate_file(file_path: Path, *, max_size_bytes: int | None = None) -> None:

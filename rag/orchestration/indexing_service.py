@@ -47,6 +47,8 @@ class IndexingResult(BaseModel):
     document_name: str = Field(..., min_length=1)
     num_pages: int = Field(..., ge=0)
     num_chunks: int = Field(..., ge=0)
+    ocr_pages: int = Field(default=0, ge=0)
+    ocr_failed_pages: list[int] = Field(default_factory=list)
 
 
 class DocumentIndexingService:
@@ -149,4 +151,6 @@ class DocumentIndexingService:
             document_name=document.document_name,
             num_pages=len(document.pages),
             num_chunks=num_indexed,
+            ocr_pages=document.metadata.get("ocr_page_count", 0),
+            ocr_failed_pages=document.metadata.get("ocr_failed_pages", []),
         )

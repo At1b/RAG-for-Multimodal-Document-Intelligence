@@ -27,3 +27,6 @@ known-first-party = ["backend", "rag", "evaluation"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "ocr_live: tests that require a live Tesseract OCR installation",
+]

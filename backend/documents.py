@@ -11,8 +11,9 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
-from backend.config import get_settings
+from backend.config import Settings, get_settings
 from rag.chunking.chunker import ChunkingConfig
 from rag.embeddings.indexing import IndexingService
 from rag.embeddings.sentence_transformer import SentenceTransformerEmbeddingService
@@ -20,8 +21,10 @@ from rag.ingestion.exceptions import (
     EmptyFileError,
     FileTooLargeError,
     InvalidDocumentError,
+    OcrUnavailableError,
     UnsupportedFormatError,
 )
+from rag.ingestion.ocr.processor import OcrProcessor
 from rag.ingestion.service import IngestionService
 from rag.orchestration.exceptions import DocumentIndexingError
 from rag.orchestration.indexing_service import DocumentIndexingService
@@ -37,7 +40,22 @@ _INGESTION_ERROR_STATUS: dict[type, int] = {
     FileTooLargeError: 413,
     UnsupportedFormatError: 415,
     InvalidDocumentError: 422,
+    OcrUnavailableError: 503,
 }
+
+
+def _build_ocr_processor(settings: Settings) -> OcrProcessor | None:
+    """Build an OcrProcessor instance from settings if OCR is enabled."""
+    if not settings.ocr_enabled:
+        return None
+    return OcrProcessor(
+        language=settings.ocr_language,
+        dpi=settings.ocr_dpi,
+        ocr_min_native_chars=settings.ocr_min_native_chars,
+        timeout_seconds=settings.ocr_timeout_seconds,
+        max_image_pixels=settings.ocr_max_image_pixels,
+        max_pages=settings.ocr_max_pages,
+    )
 
 
 def _resolve_indexing_error(exc: DocumentIndexingError) -> HTTPException:
@@ -63,7 +81,7 @@ def _resolve_indexing_error(exc: DocumentIndexingError) -> HTTPException:
 async def upload_document(file: UploadFile):
     """Upload a document for ingestion and indexing.
 
-    Accepts PDF and DOCX files.  The document is ingested, chunked,
+    Accepts PDF, DOCX, PNG, and JPEG files.  The document is ingested, chunked,
     embedded, and indexed into the vector store in a single operation.
     Returns metadata about the indexed document.
     """
@@ -74,7 +92,7 @@ async def upload_document(file: UploadFile):
     max_bytes = settings.max_upload_size_mb * 1024 * 1024
 
     # Write upload to a temp file so the ingestion pipeline can work
-    # with a regular filesystem path (required by PyMuPDF / python-docx).
+    # with a regular filesystem path (required by PyMuPDF / python-docx / Pillow).
     suffix = Path(file.filename).suffix
     tmp_path: Path | None = None
 
@@ -93,7 +111,11 @@ async def upload_document(file: UploadFile):
                 tmp.write(chunk)
 
         # Construct the full indexing pipeline from settings.
-        ingestion_service = IngestionService(max_size_bytes=max_bytes)
+        ocr_processor = _build_ocr_processor(settings)
+        ingestion_service = IngestionService(
+            max_size_bytes=max_bytes,
+            ocr_processor=ocr_processor,
+        )
         chunking_config = ChunkingConfig(
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
@@ -116,7 +138,8 @@ async def upload_document(file: UploadFile):
             indexing_service=indexing_service,
         )
 
-        result = doc_indexing_service.index_document(
+        result = await run_in_threadpool(
+            doc_indexing_service.index_document,
             file_path=tmp_path,
             document_name=file.filename,
         )
@@ -126,11 +149,15 @@ async def upload_document(file: UploadFile):
             "document_name": result.document_name,
             "num_pages": result.num_pages,
             "num_chunks": result.num_chunks,
+            "ocr_pages": result.ocr_pages,
+            "ocr_failed_pages": result.ocr_failed_pages,
         }
 
     except FileTooLargeError as exc:
         # FileTooLargeError raised during streaming (before pipeline).
         raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except OcrUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except DocumentIndexingError as exc:
         # Unwrap the cause to map to specific HTTP status codes.
         raise _resolve_indexing_error(exc) from exc

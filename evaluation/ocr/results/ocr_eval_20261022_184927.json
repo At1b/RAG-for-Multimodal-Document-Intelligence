@@ -1,0 +1,384 @@
+{
+  "metadata": {
+    "timestamp": "20261022_184927",
+    "engine": "tesseract",
+    "tesseract_version": "tesseract v5.5.3.20260724",
+    "pymupdf_version": "1.28.2",
+    "platform": "Windows 11 (AMD64)",
+    "python_version": "3.14.6"
+  },
+  "dpi_evaluations": {
+    "200": {
+      "fixtures": {
+        "clean_single": {
+          "file": "clean_single.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 303.44,
+          "num_pages": 1,
+          "char_count_ref": 257,
+          "char_count_hyp": 257
+        },
+        "multi_paragraph": {
+          "file": "multi_paragraph.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 410.34,
+          "num_pages": 1,
+          "char_count_ref": 554,
+          "char_count_hyp": 554
+        },
+        "headings_punct": {
+          "file": "headings_punct.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 328.87,
+          "num_pages": 1,
+          "char_count_ref": 311,
+          "char_count_hyp": 314
+        },
+        "scan_pdf_3page": {
+          "file": "scan_pdf_3page.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 773.96,
+          "num_pages": 3,
+          "char_count_ref": 533,
+          "char_count_hyp": 533
+        },
+        "mixed_pdf": {
+          "file": "mixed_pdf.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 565.11,
+          "num_pages": 4,
+          "char_count_ref": 487,
+          "char_count_hyp": 489
+        },
+        "image_png": {
+          "file": "image_png.png",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 228.07,
+          "num_pages": 1,
+          "char_count_ref": 195,
+          "char_count_hyp": 195
+        },
+        "image_jpg": {
+          "file": "image_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 219.17,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "degraded_jpg": {
+          "file": "degraded_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 185.82,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "table_simple": {
+          "file": "table_simple.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 254.75,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 80
+        },
+        "table_borderless": {
+          "file": "table_borderless.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 235.16,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 81
+        }
+      },
+      "macro_cer": 0.0333,
+      "macro_wer": 0.0762
+    },
+    "300": {
+      "fixtures": {
+        "clean_single": {
+          "file": "clean_single.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 461.33,
+          "num_pages": 1,
+          "char_count_ref": 257,
+          "char_count_hyp": 257
+        },
+        "multi_paragraph": {
+          "file": "multi_paragraph.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 607.64,
+          "num_pages": 1,
+          "char_count_ref": 554,
+          "char_count_hyp": 554
+        },
+        "headings_punct": {
+          "file": "headings_punct.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 497.69,
+          "num_pages": 1,
+          "char_count_ref": 311,
+          "char_count_hyp": 314
+        },
+        "scan_pdf_3page": {
+          "file": "scan_pdf_3page.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 1243.99,
+          "num_pages": 3,
+          "char_count_ref": 533,
+          "char_count_hyp": 533
+        },
+        "mixed_pdf": {
+          "file": "mixed_pdf.pdf",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "latency_ms": 770.8,
+          "num_pages": 4,
+          "char_count_ref": 487,
+          "char_count_hyp": 489
+        },
+        "image_png": {
+          "file": "image_png.png",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 199.5,
+          "num_pages": 1,
+          "char_count_ref": 195,
+          "char_count_hyp": 195
+        },
+        "image_jpg": {
+          "file": "image_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 208.57,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "degraded_jpg": {
+          "file": "degraded_jpg.jpg",
+          "cer": 0.0,
+          "wer": 0.0,
+          "page_cers": null,
+          "latency_ms": 181.45,
+          "num_pages": 1,
+          "char_count_ref": 186,
+          "char_count_hyp": 186
+        },
+        "table_simple": {
+          "file": "table_simple.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 394.18,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 80
+        },
+        "table_borderless": {
+          "file": "table_borderless.pdf",
+          "cer": 0.1667,
+          "wer": 0.381,
+          "page_cers": null,
+          "latency_ms": 366.75,
+          "num_pages": 1,
+          "char_count_ref": 96,
+          "char_count_hyp": 81
+        }
+      },
+      "macro_cer": 0.0333,
+      "macro_wer": 0.0762
+    }
+  },
+  "timing_benchmark": {
+    "repetitions": 5,
+    "native": {
+      "mean_ms": 0.07,
+      "median_ms": 0.04,
+      "min_ms": 0.04,
+      "max_ms": 0.18
+    },
+    "ocr_200_dpi": {
+      "render": {
+        "mean_ms": 61.25,
+        "median_ms": 60.91,
+        "min_ms": 59.79,
+        "max_ms": 63.19
+      },
+      "engine": {
+        "mean_ms": 297.4,
+        "median_ms": 297.19,
+        "min_ms": 295.44,
+        "max_ms": 300.26
+      },
+      "total": {
+        "mean_ms": 358.65,
+        "median_ms": 358.33,
+        "min_ms": 356.98,
+        "max_ms": 361.17
+      }
+    },
+    "ocr_300_dpi": {
+      "render": {
+        "mean_ms": 177.9,
+        "median_ms": 178.19,
+        "min_ms": 175.75,
+        "max_ms": 180.64
+      },
+      "engine": {
+        "mean_ms": 503.08,
+        "median_ms": 503.77,
+        "min_ms": 500.1,
+        "max_ms": 505.5
+      },
+      "total": {
+        "mean_ms": 680.99,
+        "median_ms": 681.65,
+        "min_ms": 676.56,
+        "max_ms": 684.03
+      }
+    }
+  },
+  "table_assessment": {
+    "table_simple": {
+      "psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "cell_match_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_4": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "cell_match_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_6": {
+        "cer": 1.0,
+        "wer": 1.0,
+        "cell_match_rate": 0.0,
+        "four_rows_preserved": false,
+        "sample_output": []
+      },
+      "gap_heuristic_psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      }
+    },
+    "table_borderless": {
+      "psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "cell_match_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_4": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "cell_match_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "psm_6": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "cell_match_rate": 1.0,
+        "four_rows_preserved": true,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      },
+      "gap_heuristic_psm_3": {
+        "cer": 0.1667,
+        "wer": 0.381,
+        "sample_output": [
+          "Metric Baseline Proposed",
+          "Precision 0.82 0.94",
+          "Recall 0.76 0.89",
+          "F1 Score 0.79 0.91"
+        ]
+      }
+    }
+  }
+}

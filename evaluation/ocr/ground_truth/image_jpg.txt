@@ -1,0 +1,1 @@
+Standard JPEG images are commonly produced by mobile cameras and document scanners. The ingestion pipeline normalizes orientation and converts images to grayscale for optical processing.
